@@ -7,20 +7,20 @@
   <text x="1140" y="56" fill="#c7ff31" font-family="monospace" font-size="13">GATEWAY ONLINE</text>
   <rect x="24" y="96" width="392" height="600" rx="12" fill="#10161a" stroke="#263038"/>
   <text x="50" y="133" fill="#839099" font-family="monospace" font-size="12">NEW CONNECTION</text>
-  <text x="50" y="169" fill="#eef4f5" font-family="sans-serif" font-size="26" font-weight="700">Mở phiên điều khiển</text>
-  <text x="50" y="220" fill="#839099" font-family="monospace" font-size="11">GIAO THỨC</text>
+  <text x="50" y="169" fill="#eef4f5" font-family="sans-serif" font-size="26" font-weight="700">Open remote session</text>
+  <text x="50" y="220" fill="#839099" font-family="monospace" font-size="11">PROTOCOL</text>
   <rect x="50" y="232" width="340" height="48" rx="6" fill="#090d10" stroke="#35414a"/><text x="68" y="262" fill="#eef4f5" font-family="monospace" font-size="14">RDP — Windows</text>
-  <text x="50" y="318" fill="#839099" font-family="monospace" font-size="11">MÁY ĐÍCH</text>
+  <text x="50" y="318" fill="#839099" font-family="monospace" font-size="11">TARGET HOST</text>
   <rect x="50" y="330" width="240" height="48" rx="6" fill="#090d10" stroke="#35414a"/><text x="68" y="360" fill="#536069" font-family="monospace" font-size="13">Private IPv4</text>
   <rect x="300" y="330" width="90" height="48" rx="6" fill="#090d10" stroke="#35414a"/><text x="319" y="360" fill="#eef4f5" font-family="monospace" font-size="13">3389</text>
-  <rect x="50" y="414" width="340" height="48" rx="6" fill="#090d10" stroke="#35414a"/><text x="68" y="444" fill="#536069" font-family="monospace" font-size="13">Tên đăng nhập</text>
+  <rect x="50" y="414" width="340" height="48" rx="6" fill="#090d10" stroke="#35414a"/><text x="68" y="444" fill="#536069" font-family="monospace" font-size="13">Username</text>
   <rect x="50" y="478" width="340" height="48" rx="6" fill="#090d10" stroke="#35414a"/><text x="68" y="508" fill="#536069" font-family="monospace" font-size="13">••••••••••••</text>
-  <rect x="50" y="606" width="340" height="58" rx="6" fill="#c7ff31"/><text x="89" y="641" fill="#0b0f10" font-family="monospace" font-size="15" font-weight="700">KHỞI TẠO PHIÊN</text>
+  <rect x="50" y="606" width="340" height="58" rx="6" fill="#c7ff31"/><text x="89" y="641" fill="#0b0f10" font-family="monospace" font-size="15" font-weight="700">START SESSION</text>
   <rect x="432" y="96" width="824" height="600" rx="12" fill="#0c1114" stroke="#263038"/>
-  <rect x="450" y="114" width="788" height="52" rx="7" fill="#12191d"/><text x="474" y="146" fill="#9ba7ad" font-family="monospace" font-size="12">NO SESSION  ·  CHỜ MÁY ĐÍCH</text>
+  <rect x="450" y="114" width="788" height="52" rx="7" fill="#12191d"/><text x="474" y="146" fill="#9ba7ad" font-family="monospace" font-size="12">NO SESSION  ·  AWAITING TARGET</text>
   <circle cx="844" cy="397" r="108" fill="none" stroke="#202c31"/><circle cx="844" cy="397" r="71" fill="none" stroke="#202c31"/><circle cx="844" cy="397" r="34" fill="none" stroke="#c7ff31" stroke-opacity=".45"/>
   <path d="M844 270V524M717 397H971M754 307L934 487M934 307L754 487" stroke="#202c31"/>
   <circle cx="844" cy="397" r="6" fill="#c7ff31"/>
-  <text x="770" y="555" fill="#e9f0f2" font-family="monospace" font-size="16" font-weight="700">CHƯA CÓ PHIÊN</text>
-  <text x="696" y="582" fill="#69767d" font-family="monospace" font-size="12">NHẬP MÁY ĐÍCH ĐỂ BẮT ĐẦU</text>
+  <text x="790" y="555" fill="#e9f0f2" font-family="monospace" font-size="16" font-weight="700">NO SESSION</text>
+  <text x="720" y="582" fill="#69767d" font-family="monospace" font-size="12">ENTER A TARGET TO BEGIN</text>
 </svg>

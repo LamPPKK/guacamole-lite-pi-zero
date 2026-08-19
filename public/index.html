@@ -1,25 +1,25 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#090d0f">
   <title>Pi Remote — Edge Console</title>
-  <link rel="stylesheet" href="./styles.css?v=edge-1">
+  <link rel="stylesheet" href="./styles.css?v=edge-2">
 </head>
 <body>
-  <a class="skip-link" href="#workspace">Bỏ qua đến bảng điều khiển</a>
+  <a class="skip-link" href="#workspace">Skip to remote console</a>
   <div class="ambient-grid" aria-hidden="true"></div>
 
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Pi Remote, trang chính">
+    <a class="brand" href="/" aria-label="Pi Remote home">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 32 32"><path d="M8 5h11.5L25 10.5V27H8z"/><path d="M19 5v6h6M12 16h9M12 21h6"/></svg>
       </span>
       <span class="brand-copy"><strong>PI//REMOTE</strong><small>EDGE CONSOLE · 01</small></span>
     </a>
 
-    <div class="topbar-status" aria-label="Trạng thái gateway">
+    <div class="topbar-status" aria-label="Gateway status">
       <span class="secure-chip">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v10H5z"/></svg>
         SSH TUNNEL
@@ -34,17 +34,17 @@
     <aside class="connection-panel" aria-labelledby="connection-title">
       <div class="panel-index" aria-hidden="true">01</div>
       <header class="panel-heading">
-        <div><p class="kicker">NEW CONNECTION</p><h1 id="connection-title">Mở phiên điều khiển</h1></div>
+        <div><p class="kicker">NEW CONNECTION</p><h1 id="connection-title">Open remote session</h1></div>
         <span id="status" class="status idle" role="status" aria-live="polite">
-          <span class="status-light" aria-hidden="true"></span><span id="status-text">Sẵn sàng</span>
+          <span class="status-light" aria-hidden="true"></span><span id="status-text">Ready</span>
         </span>
       </header>
 
       <form id="connection-form">
         <fieldset class="form-section target-section">
-          <legend><span>01</span> Máy đích</legend>
+          <legend><span>01</span> Target host</legend>
           <label class="field">
-            <span class="field-label">Giao thức</span>
+            <span class="field-label">Protocol</span>
             <span class="select-shell">
               <select id="protocol" name="protocol"><option value="rdp">RDP — Windows</option><option value="vnc">VNC — Cross-platform</option></select>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
@@ -53,25 +53,25 @@
 
           <div class="address-grid">
             <label class="field host-field">
-              <span class="field-label">Địa chỉ private</span>
+              <span class="field-label">Private address</span>
               <span class="input-shell host-input"><span class="input-prefix" aria-hidden="true">IP</span><input name="hostname" inputmode="decimal" placeholder="192.168.1.100" required autocomplete="off" spellcheck="false"></span>
             </label>
-            <label class="field port-field"><span class="field-label">Cổng</span><input id="port" name="port" type="number" min="1" max="65535" value="3389" required></label>
+            <label class="field port-field"><span class="field-label">Port</span><input id="port" name="port" type="number" min="1" max="65535" value="3389" required></label>
           </div>
         </fieldset>
 
         <fieldset class="form-section credentials-section">
-          <legend><span>02</span> Xác thực</legend>
+          <legend><span>02</span> Authentication</legend>
           <label class="field">
-            <span class="field-label">Tài khoản</span>
+            <span class="field-label">Username</span>
             <span class="input-shell"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21a8 8 0 0 1 16 0"/></svg><input name="username" autocomplete="username" placeholder="Administrator"></span>
           </label>
           <label class="field">
-            <span class="field-label">Mật khẩu</span>
+            <span class="field-label">Password</span>
             <span class="input-shell">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v10H5z"/></svg>
               <input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••••••">
-              <button id="toggle-password" class="icon-button password-toggle" type="button" aria-label="Hiện mật khẩu" aria-pressed="false">
+              <button id="toggle-password" class="icon-button password-toggle" type="button" aria-label="Show password" aria-pressed="false">
                 <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
                 <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 6.1A10 10 0 0 1 12 6c6 0 9.5 6 9.5 6a16 16 0 0 1-2.2 2.8M6.1 6.1A16.5 16.5 0 0 0 2.5 12s3.5 6 9.5 6a9 9 0 0 0 3-.5"/></svg>
               </button>
@@ -79,25 +79,25 @@
           </label>
 
           <div class="rdp-options rdp-only">
-            <label class="field"><span class="field-label">Domain <span>tuỳ chọn</span></span><input name="domain" autocomplete="off" placeholder="WORKGROUP"></label>
+            <label class="field"><span class="field-label">Domain <span>optional</span></span><input name="domain" autocomplete="off" placeholder="WORKGROUP"></label>
             <label class="field">
-              <span class="field-label">Bảo mật RDP</span>
-              <span class="select-shell"><select name="security"><option value="any">Tự động</option><option value="nla">NLA</option><option value="tls">TLS</option><option value="rdp">RDP legacy</option></select><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg></span>
+              <span class="field-label">RDP security</span>
+              <span class="select-shell"><select name="security"><option value="any">Automatic</option><option value="nla">NLA</option><option value="tls">TLS</option><option value="rdp">RDP legacy</option></select><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg></span>
             </label>
           </div>
         </fieldset>
 
         <button id="connect-button" type="submit" class="connect-button">
           <span class="button-scan" aria-hidden="true"></span><span class="connect-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h13M14 7l5 5-5 5"/></svg></span>
-          <span id="connect-label">Khởi tạo phiên</span><span class="button-code" aria-hidden="true">↗ 01</span><span class="button-loader" aria-hidden="true"></span>
+          <span id="connect-label">Start session</span><span class="button-code" aria-hidden="true">↗ 01</span><span class="button-loader" aria-hidden="true"></span>
         </button>
       </form>
 
       <div class="security-note">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.7 2.8 8.7 7 10 4.2-1.3 7-5.3 7-10V6zM9 12l2 2 4-5"/></svg>
-        <p><strong>Kết nối cục bộ.</strong> Chỉ IP private LAN/WARP được phép. Token mã hoá tự huỷ sau 5 phút.</p>
+        <p><strong>Local access only.</strong> Only private LAN/WARP addresses are allowed. Encrypted tokens expire after five minutes.</p>
       </div>
-      <footer class="panel-footer" aria-label="Thông số bảo mật">
+      <footer class="panel-footer" aria-label="Security parameters">
         <div><span>SLOTS</span><strong>01 / 01</strong></div><div><span>CIPHER</span><strong>AES-256</strong></div><div><span>ROUTE</span><strong>LOOPBACK</strong></div>
       </footer>
     </aside>
@@ -106,16 +106,16 @@
       <header class="viewer-toolbar">
         <div class="session-identity">
           <div class="window-lights" aria-hidden="true"><span></span><span></span><span></span></div>
-          <div><span id="session-protocol" class="protocol-chip">NO SESSION</span><strong id="session-title">Chờ máy đích</strong></div>
+          <div><span id="session-protocol" class="protocol-chip">NO SESSION</span><strong id="session-title">Awaiting target</strong></div>
         </div>
         <div class="viewer-actions">
           <span id="viewport-size" class="viewport-size">— × —</span>
-          <button id="fullscreen" class="toolbar-button" type="button" aria-label="Mở toàn màn hình"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg><span>Toàn màn hình</span></button>
-          <button id="disconnect" class="toolbar-button danger" type="button" aria-label="Ngắt kết nối" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5v16h4M14 8l4 4-4 4M18 12H9"/></svg><span>Ngắt</span></button>
+          <button id="fullscreen" class="toolbar-button" type="button" aria-label="Enter fullscreen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg><span>Fullscreen</span></button>
+          <button id="disconnect" class="toolbar-button danger" type="button" aria-label="Disconnect session" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5v16h4M14 8l4 4-4 4M18 12H9"/></svg><span>Disconnect</span></button>
         </div>
       </header>
 
-      <div id="display" class="display" tabindex="0" data-state="idle" aria-label="Màn hình máy tính từ xa">
+      <div id="display" class="display" tabindex="0" data-state="idle" aria-label="Remote desktop display">
         <div id="empty-state" class="empty-state">
           <div class="radar" aria-hidden="true">
             <span class="radar-pulse"></span>
@@ -125,8 +125,8 @@
             </svg>
             <span class="radar-label label-lan">LAN</span><span class="radar-label label-pi">PI:01</span><span class="radar-label label-warp">WARP</span>
           </div>
-          <div class="empty-copy"><p class="kicker">REMOTE DISPLAY CHANNEL</p><h2>Chưa có tín hiệu</h2><p>Nhập IP private và thông tin xác thực để mở một phiên RDP hoặc VNC qua Raspberry Pi.</p></div>
-          <div class="keyboard-hints" aria-label="Phím tắt gợi ý"><span><kbd>F11</kbd> Fullscreen</span><span><kbd>ESC</kbd> Exit view</span></div>
+          <div class="empty-copy"><p class="kicker">REMOTE DISPLAY CHANNEL</p><h2>No signal</h2><p>Enter a private IP address and credentials to open an RDP or VNC session through the Raspberry Pi.</p></div>
+          <div class="keyboard-hints" aria-label="Suggested keyboard shortcuts"><span><kbd>F11</kbd> Fullscreen</span><span><kbd>ESC</kbd> Exit view</span></div>
         </div>
       </div>
       <footer class="viewer-footer"><span><i class="footer-light"></i> WEB ACCESS VIA SSH</span><span id="viewer-route">127.0.0.1:8080 · GUACD:4822</span></footer>
@@ -134,6 +134,6 @@
   </main>
 
   <script src="./guacamole/all.min.js"></script>
-  <script src="./app.js?v=edge-1"></script>
+  <script src="./app.js?v=edge-2"></script>
 </body>
 </html>

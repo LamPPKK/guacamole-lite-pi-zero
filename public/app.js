@@ -50,7 +50,7 @@ function setGateway(text, state) {
 function setBusy(busy) {
   connectButton.disabled = busy;
   connectButton.classList.toggle('busy', busy);
-  connectLabel.textContent = busy ? 'Đang bắt tay…' : 'Khởi tạo phiên';
+  connectLabel.textContent = busy ? 'Negotiating…' : 'Start session';
 }
 
 function updateProtocolFields() {
@@ -89,7 +89,7 @@ function resetViewer() {
   emptyState.hidden = false;
   display.dataset.state = 'idle';
   disconnectButton.disabled = true;
-  sessionTitle.textContent = 'Chờ máy đích';
+  sessionTitle.textContent = 'Awaiting target';
   sessionProtocol.textContent = 'NO SESSION';
   updateViewportSize();
 }
@@ -102,7 +102,7 @@ function disconnect() {
   connectionHadError = false;
   resetViewer();
   setBusy(false);
-  setStatus('Đã ngắt', 'idle');
+  setStatus('Disconnected', 'idle');
 }
 
 async function checkGateway() {
@@ -128,7 +128,7 @@ function toggleFullscreen() {
 protocolInput.addEventListener('change', updateProtocolFields);
 window.addEventListener('resize', scaleDisplay);
 window.addEventListener('fullscreenchange', () => {
-  fullscreenButton.setAttribute('aria-label', document.fullscreenElement ? 'Thoát toàn màn hình' : 'Mở toàn màn hình');
+  fullscreenButton.setAttribute('aria-label', document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen');
   scaleDisplay();
 });
 
@@ -136,7 +136,7 @@ passwordToggle.addEventListener('click', () => {
   const reveal = passwordInput.type === 'password';
   passwordInput.type = reveal ? 'text' : 'password';
   passwordToggle.setAttribute('aria-pressed', String(reveal));
-  passwordToggle.setAttribute('aria-label', reveal ? 'Ẩn mật khẩu' : 'Hiện mật khẩu');
+  passwordToggle.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
 });
 
 disconnectButton.addEventListener('click', disconnect);
@@ -158,7 +158,7 @@ document.addEventListener('visibilitychange', () => {
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!guacamoleAvailable || location.protocol === 'file:') {
-    setStatus('Mở qua SSH tunnel', 'error');
+    setStatus('Open through an SSH tunnel', 'error');
     setGateway('UI PREVIEW', 'preview');
     return;
   }
@@ -166,7 +166,7 @@ form.addEventListener('submit', async (event) => {
   disconnect();
   connectionHadError = false;
   setBusy(true);
-  setStatus('Đang tạo phiên', 'working');
+  setStatus('Creating session', 'working');
 
   const values = Object.fromEntries(new FormData(form));
   values.width = Math.max(640, Math.floor(display.clientWidth));
@@ -180,7 +180,7 @@ form.addEventListener('submit', async (event) => {
       body: JSON.stringify(values)
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Không tạo được token');
+    if (!response.ok) throw new Error(result.error || 'Failed to create token');
 
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
     const tunnel = new Guacamole.WebSocketTunnel(`${scheme}://${location.host}/?token=${encodeURIComponent(result.token)}`);
@@ -197,10 +197,10 @@ form.addEventListener('submit', async (event) => {
     sessionClient.onstatechange = (state) => {
       if (client !== sessionClient) return;
       if (state === Guacamole.Client.State.CONNECTING || state === Guacamole.Client.State.WAITING) {
-        setStatus('Đang bắt tay', 'working');
+        setStatus('Negotiating', 'working');
       } else if (state === Guacamole.Client.State.CONNECTED) {
         display.dataset.state = 'connected';
-        setStatus('Đã kết nối', 'online');
+        setStatus('Connected', 'online');
         setBusy(false);
         disconnectButton.disabled = false;
         display.focus();
@@ -209,14 +209,14 @@ form.addEventListener('submit', async (event) => {
         keyboard?.reset();
         resetViewer();
         setBusy(false);
-        if (!connectionHadError) setStatus('Đã ngắt', 'idle');
+        if (!connectionHadError) setStatus('Disconnected', 'idle');
       }
     };
 
     sessionClient.onerror = (status) => {
       if (client !== sessionClient) return;
       connectionHadError = true;
-      setStatus(status.message || 'Kết nối lỗi', 'error');
+      setStatus(status.message || 'Connection failed', 'error');
       setBusy(false);
     };
 

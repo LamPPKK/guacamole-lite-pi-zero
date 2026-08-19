@@ -8,6 +8,12 @@ const test = require('node:test');
 
 const root = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
+const collectFiles = (directory) => fs.readdirSync(directory, { withFileTypes: true })
+  .flatMap((entry) => {
+    if (entry.name === '.git' || entry.name === 'node_modules') return [];
+    const absolute = path.join(directory, entry.name);
+    return entry.isDirectory() ? collectFiles(absolute) : [absolute];
+  });
 
 test('every app selector has a matching HTML id', () => {
   const app = read('public/app.js');
@@ -52,12 +58,6 @@ test('systemd units bind both services to loopback', () => {
 });
 
 test('repository does not contain deployment-specific secrets or addresses', () => {
-  const collectFiles = (directory) => fs.readdirSync(directory, { withFileTypes: true })
-    .flatMap((entry) => {
-      if (entry.name === '.git' || entry.name === 'node_modules') return [];
-      const absolute = path.join(directory, entry.name);
-      return entry.isDirectory() ? collectFiles(absolute) : [absolute];
-    });
   const content = collectFiles(root).map((file) => fs.readFileSync(file, 'utf8')).join('\n');
   const deploymentAddress = ['192', '168', '1', '35'].join('.');
   const deploymentPassword = ['25', '02'].join('');
@@ -68,4 +68,15 @@ test('repository does not contain deployment-specific secrets or addresses', () 
   assert.doesNotMatch(content, /GUAC_TOKEN_KEY=[A-Za-z0-9+/]{20,}/);
   assert.doesNotMatch(content, /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/);
   assert.doesNotMatch(content, /(?:ghp_|github_pat_)[A-Za-z0-9_]{20,}/);
+});
+
+test('repository-facing text uses the English locale and no Vietnamese diacritics', () => {
+  const content = collectFiles(root).map((file) => fs.readFileSync(file, 'utf8')).join('\n');
+  const accentedLatin = /[\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\u1e00-\u1eff]/u;
+  const html = read('public/index.html');
+
+  assert.match(html, /<html lang="en">/);
+  assert.match(html, /styles\.css\?v=edge-2/);
+  assert.match(html, /app\.js\?v=edge-2/);
+  assert.doesNotMatch(content, accentedLatin);
 });

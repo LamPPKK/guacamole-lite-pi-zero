@@ -1,41 +1,43 @@
-# Guacamole Lite cho Raspberry Pi Zero 2 W
+# Guacamole Lite for Raspberry Pi Zero 2 W
 
-Web UI RDP/VNC tối giản dành cho Raspberry Pi ARM64 ít RAM. Gateway Node.js và
-`guacd` chỉ lắng nghe trên loopback; người dùng truy cập qua SSH local-forward,
-không mở cổng web ra LAN.
+A minimal RDP/VNC web console for low-memory ARM64 Raspberry Pi systems. The
+Node.js gateway and `guacd` listen on loopback only; users connect through SSH
+local forwarding, so no web port is exposed to the LAN.
 
-![Giao diện PI//REMOTE](docs/ui-preview.svg)
+![PI//REMOTE interface preview](docs/ui-preview.svg)
 
-## Có gì trong repo
+## What is included
 
-- UI responsive từ 320 px, hỗ trợ chuột, bàn phím, cảm ứng và toàn màn hình.
-- Gateway `guacamole-lite` 1.2.0 với token 5 phút, mã hóa AES-256-CBC và xác
-  thực HMAC-SHA256.
-- Chỉ cho phép RDP/VNC tới IPv4 riêng (RFC1918 và CGNAT), tối đa một phiên.
-- Apache `guacd` khóa tại commit
-  `f22a2df129d9ecf279466e9bcf44cd026e23e6bd` của nhánh `staging/1.6.1`.
-- Service systemd được sandbox, giới hạn V8 heap 80 MiB và khai báo giới hạn
-  bộ nhớ cho cgroup.
-- Script build, cài, kiểm tra, mở tunnel, rollback và gỡ cài đặt.
+- A responsive UI down to 320 px with mouse, keyboard, touch, and fullscreen
+  support.
+- A `guacamole-lite` 1.2.0 gateway with five-minute tokens protected by
+  AES-256-CBC encryption and HMAC-SHA256 authentication.
+- RDP/VNC access to private IPv4 targets only (RFC1918 and CGNAT), limited to
+  one concurrent session.
+- Apache `guacd` pinned to commit
+  `f22a2df129d9ecf279466e9bcf44cd026e23e6bd` from `staging/1.6.1`.
+- Sandboxed systemd services, an 80 MiB V8 heap limit, and declarative cgroup
+  memory limits.
+- Build, install, verification, tunnel, rollback, and uninstall scripts.
 
-Không dùng Docker, Tomcat, Java, database hay reverse proxy. Bộ cài không sửa
-cấu hình SSH, WARP, Cloudflared, Samba hoặc Pi Connect.
+The stack does not use Docker, Tomcat, Java, a database, or a reverse proxy.
+The installer does not modify SSH, WARP, Cloudflared, Samba, or Pi Connect.
 
-## Yêu cầu
+## Requirements
 
-- Raspberry Pi OS/Debian 13 ARM64 (`aarch64`).
-- Node.js và npm; Node.js 20 trở lên.
-- systemd và kết nối Internet trong lần build/cài đầu tiên.
-- Máy trạm có SSH client.
+- Raspberry Pi OS or Debian 13 ARM64 (`aarch64`).
+- Node.js and npm, with Node.js 20 or newer available at `/usr/bin/node`.
+- systemd and Internet access for the initial build and installation.
+- An SSH client on the workstation.
 
-Pi Zero 2 W build `guacd` bằng một luồng để tránh cạn RAM. Quá trình có thể mất
-khá lâu; nên bật swap và giữ một phiên SSH dự phòng. Source và npm dependency
-đều được khóa bằng commit/version, nhưng gói Debian vẫn lấy từ repository đang
-cấu hình trên máy.
+The Pi Zero 2 W builds `guacd` with one job to reduce peak memory use. The
+build can take a while; enable swap and keep a backup SSH session open. Source
+and npm dependencies are pinned by commit/version, while Debian packages come
+from the repositories configured on the Pi.
 
-## Cài đặt
+## Installation
 
-Trên Pi:
+On the Pi:
 
 ```sh
 git clone https://github.com/LamPPKK/guacamole-lite-pi-zero.git
@@ -43,32 +45,34 @@ cd guacamole-lite-pi-zero
 sudo ./scripts/install.sh
 ```
 
-Nếu `guacd` đúng phiên bản đã có sẵn:
+If the correct `guacd` build is already installed:
 
 ```sh
 sudo ./scripts/install.sh --skip-guacd-build
 ```
 
-`--no-apt` bỏ qua cài build dependency và phù hợp khi máy đã có đủ thư viện.
-Script tạo bản sao cấu hình cũ trong `/var/backups/guacamole-lite-pi/` trước
-khi thay thế gateway.
+Use `--no-apt` to skip build dependency installation when the required
+packages are already present. Before replacing the gateway, the installer
+saves existing files under `/var/backups/guacamole-lite-pi/`.
 
-## Truy cập
+## Access
 
-Từ Mac/Linux/WSL, tại checkout của repo:
+From macOS, Linux, or WSL in a checkout of this repository:
 
 ```sh
 ./scripts/open-tunnel.sh pi@pi-host
 ```
 
-Sau đó mở [http://127.0.0.1:8080](http://127.0.0.1:8080). Có thể chọn một cổng
-local khác, ví dụ `./scripts/open-tunnel.sh pi@pi-host 9080`.
+Then open [http://127.0.0.1:8080](http://127.0.0.1:8080). Pass a second
+argument to use another local port, for example
+`./scripts/open-tunnel.sh pi@pi-host 9080`.
 
-Địa chỉ máy RDP/VNC phải là IPv4 riêng. Mặc định RDP dùng cổng 3389 và VNC dùng
-cổng 5900. Mật khẩu chỉ tồn tại trong bộ nhớ của tab và token kết nối ngắn hạn;
-gateway không ghi credential xuống đĩa hoặc log.
+RDP/VNC targets must use a private IPv4 address. RDP defaults to port 3389 and
+VNC defaults to port 5900. Credentials exist only in the browser tab's memory
+and in a short-lived connection token; the gateway does not persist them or
+write them to logs.
 
-## Kiểm tra và vận hành
+## Verification and operations
 
 ```sh
 sudo ./scripts/verify.sh
@@ -77,64 +81,68 @@ sudo journalctl -u guacd -u guacamole-lite --since today
 curl http://127.0.0.1:8080/healthz
 ```
 
-Kiểm tra source trước khi commit:
+Validate a source checkout before committing:
 
 ```sh
 npm ci --ignore-scripts
 ./scripts/check.sh
 ```
 
-Các đường dẫn cài đặt:
+Installation paths:
 
-| Thành phần | Đường dẫn |
+| Component | Path |
 |---|---|
-| Gateway và UI | `/opt/guacamole-lite/1.2.0` |
+| Gateway and UI | `/opt/guacamole-lite/1.2.0` |
 | `guacd` | `/opt/guacamole-server/1.6.1-staging` |
-| Secret runtime | `/etc/guacamole-lite/env` |
-| Backup installer | `/var/backups/guacamole-lite-pi` |
-| Web / guacd | `127.0.0.1:8080` / `127.0.0.1:4822` |
+| Runtime secret | `/etc/guacamole-lite/env` |
+| Installer backups | `/var/backups/guacamole-lite-pi` |
+| Web / guacd listeners | `127.0.0.1:8080` / `127.0.0.1:4822` |
 
-## Rollback và gỡ cài đặt
+## Rollback and uninstall
 
-Khôi phục bản backup gần nhất:
+Restore the most recent installer backup:
 
 ```sh
 sudo ./scripts/rollback.sh
 ```
 
-Hoặc chỉ định một thư mục timestamp cụ thể dưới
-`/var/backups/guacamole-lite-pi/`. Rollback giữ lại prefix `guacd` đã build để
-không phải biên dịch lại.
+You may instead pass a specific timestamped directory below
+`/var/backups/guacamole-lite-pi/`. Rollback preserves the compiled `guacd`
+prefix to avoid an unnecessary rebuild.
 
-Gỡ gateway nhưng giữ secret, `guacd` và backup:
+Remove the gateway while preserving its secret, `guacd`, and backups:
 
 ```sh
 sudo ./scripts/uninstall.sh
 ```
 
-Xóa thêm secret và prefix `guacd`:
+Remove the secret and versioned `guacd` prefix as well:
 
 ```sh
 sudo ./scripts/uninstall.sh --purge
 ```
 
-Các plugin FreeRDP do upstream `make install` đặt trong thư mục plugin hệ thống
-không bị tự động xóa, vì chúng có thể đang được chương trình khác sử dụng.
-Build cưỡng bức có thể ghi đè plugin cùng tên từ một bản Guacamole khác; nên
-dùng Pi chuyên dụng hoặc tự backup các plugin đó trước khi chạy `--force`.
+Upstream `make install` places FreeRDP plugins in the system plugin directory.
+The uninstaller intentionally leaves them in place because other software may
+use them. A forced build can overwrite same-named plugins from another
+Guacamole installation; use a dedicated Pi or back up those plugins before
+running `--force`.
 
-## Ghi chú giới hạn
+## Known limitations
 
-Build staging này được dùng vì FreeRDP 3 trên Debian 13 cần phần tương thích mới
-hơn release Guacamole 1.6.0. Đây là code staging và phần FreeRDP 3 được upstream
-đánh dấu thử nghiệm; hãy kiểm thử máy đích trước khi dùng dài hạn.
+This staging build is used because FreeRDP 3 on Debian 13 requires newer
+compatibility code than the Guacamole 1.6.0 release provides. The source is a
+staging branch and upstream marks its FreeRDP 3 support as experimental. Test
+your target systems before relying on it for long-running access.
 
-`MemoryHigh`/`MemoryMax` chỉ có hiệu lực khi kernel bật cgroup v2 memory
-controller. Dù không có controller, gateway vẫn giữ V8 heap ở 80 MiB và chặn
-phiên đồng thời thứ hai. Xem thêm [kiến trúc](docs/ARCHITECTURE.md),
-[mô hình bảo mật](docs/SECURITY.md) và [xử lý sự cố](docs/TROUBLESHOOTING.md).
+`MemoryHigh` and `MemoryMax` only take effect when the kernel exposes the
+cgroup v2 memory controller. Without it, the gateway still uses an 80 MiB V8
+heap limit and rejects a second concurrent session. See
+[Architecture](docs/ARCHITECTURE.md), [Security](docs/SECURITY.md), and
+[Troubleshooting](docs/TROUBLESHOOTING.md) for details.
 
-## Giấy phép
+## License
 
-Code riêng của repo dùng MIT. `guacamole-lite`, Apache Guacamole Server và file
-client vendored dùng Apache-2.0; xem [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Repository-specific code is MIT licensed. `guacamole-lite`, Apache Guacamole
+Server, and the vendored browser client use Apache-2.0; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
