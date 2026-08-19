@@ -1,0 +1,23 @@
+{
+  "name": "guacamole-lite-pi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Loopback-only Guacamole Lite gateway for Raspberry Pi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LamPPKK/guacamole-lite-pi-zero.git"
+  },
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "guacamole-lite": "1.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

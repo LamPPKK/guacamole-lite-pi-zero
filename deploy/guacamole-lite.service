@@ -1,0 +1,35 @@
+[Unit]
+Description=Loopback-only Guacamole Lite web gateway
+After=network-online.target guacd.service
+Wants=network-online.target
+Requires=guacd.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+DynamicUser=true
+WorkingDirectory=/opt/guacamole-lite/1.2.0
+EnvironmentFile=/etc/guacamole-lite/env
+ExecStart=/usr/bin/node --max-old-space-size=80 server.js
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryHigh=96M
+MemoryMax=128M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

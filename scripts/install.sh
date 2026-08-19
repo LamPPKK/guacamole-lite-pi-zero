@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
+
+BUILD_GUACD=1
+INSTALL_BUILD_PACKAGES=1
+
+usage() {
+  cat <<'EOF'
+Usage: sudo ./scripts/install.sh [options]
+
+Options:
+  --skip-guacd-build  require an existing pinned guacd build
+  --no-apt            do not install guacd build dependencies
+  -h, --help          show this help
+
+The gateway and guacd bind to loopback only. This script does not configure a
+firewall and does not modify SSH, WARP, Cloudflared, Samba, or Pi Connect.
+EOF
+}
+
+while (($#)); do
+  case "$1" in
+    --skip-guacd-build) BUILD_GUACD=0 ;;
+    --no-apt) INSTALL_BUILD_PACKAGES=0 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown option: $1" ;;
+  esac
+  shift
+done
+
+require_root
+require_arm64
+require_systemd
+[[ -x /usr/bin/node ]] || die "Node.js 20 or newer is required at /usr/bin/node"
+command -v npm >/dev/null 2>&1 || die "npm is required"
+[[ $(node_major) -ge 20 ]] || die "Node.js 20 or newer is required"
+
+ROOT_DIR="$(repo_root)"
+[[ -f "${ROOT_DIR}/package-lock.json" && -f "${ROOT_DIR}/server.js" ]] \
+  || die "run this script from a complete repository checkout"
+
+if [[ ${BUILD_GUACD} -eq 1 ]]; then
+  BUILD_ARGS=()
+  [[ ${INSTALL_BUILD_PACKAGES} -eq 1 ]] || BUILD_ARGS+=(--no-apt)
+  "${SCRIPT_DIR}/build-guacd.sh" "${BUILD_ARGS[@]}"
+else
+  [[ -x "${GUACD_PREFIX}/sbin/guacd" ]] \
+    || die "pinned guacd is missing; remove --skip-guacd-build"
+  [[ -f "${GUACD_PREFIX}/BUILD-MANIFEST" ]] \
+    || die "guacd build manifest is missing"
+  grep -qx "commit=${GUACD_COMMIT}" "${GUACD_PREFIX}/BUILD-MANIFEST" \
+    || die "installed guacd does not match the pinned commit"
+fi
+
+install -d -m 0700 "${BACKUP_ROOT}" "${STATE_DIR}"
+BACKUP_DIR="$(mktemp -d "${BACKUP_ROOT}/$(timestamp_utc).XXXXXX")"
+install -d -m 0700 "${BACKUP_DIR}/rootfs"
+: > "${BACKUP_DIR}/present.list"
+: > "${BACKUP_DIR}/absent.list"
+chmod 0600 "${BACKUP_DIR}/present.list" "${BACKUP_DIR}/absent.list"
+
+backup_path() {
+  local target="$1"
+  local relative="${target#/}"
+  if [[ -e ${target} || -L ${target} ]]; then
+    install -d -m 0700 "${BACKUP_DIR}/rootfs/$(dirname -- "${relative}")"
+    cp -a -- "${target}" "${BACKUP_DIR}/rootfs/${relative}"
+    printf '%s\n' "${target}" >> "${BACKUP_DIR}/present.list"
+  else
+    printf '%s\n' "${target}" >> "${BACKUP_DIR}/absent.list"
+  fi
+}
+
+for target in \
+  "${GATEWAY_PREFIX}" \
+  "${ENV_FILE}" \
+  /etc/systemd/system/guacd.service \
+  /etc/systemd/system/guacamole-lite.service; do
+  backup_path "${target}"
+done
+printf '%s\n' "${BACKUP_DIR}" > "${STATE_DIR}/last-backup"
+chmod 0600 "${STATE_DIR}/last-backup" "${BACKUP_DIR}"/*.list
+log "backup saved to ${BACKUP_DIR}"
+
+if ! getent group guacd >/dev/null; then
+  groupadd --system guacd
+fi
+if ! getent passwd guacd >/dev/null; then
+  useradd --system --home-dir /var/lib/guacd --create-home \
+    --gid guacd --shell /usr/sbin/nologin guacd
+fi
+install -d -o guacd -g guacd -m 0750 /var/lib/guacd
+
+install -d -m 0755 /opt/guacamole-lite
+STAGE_DIR="$(mktemp -d /opt/guacamole-lite/.install.XXXXXX)"
+cleanup() {
+  if [[ -n ${STAGE_DIR:-} && -d ${STAGE_DIR} ]]; then
+    rm -rf -- "${STAGE_DIR}"
+  fi
+}
+trap cleanup EXIT
+
+install -m 0644 "${ROOT_DIR}/package.json" "${STAGE_DIR}/package.json"
+install -m 0644 "${ROOT_DIR}/package-lock.json" "${STAGE_DIR}/package-lock.json"
+install -m 0644 "${ROOT_DIR}/server.js" "${STAGE_DIR}/server.js"
+install -m 0644 "${ROOT_DIR}/deploy/GATEWAY-BUILD-MANIFEST" \
+  "${STAGE_DIR}/GATEWAY-BUILD-MANIFEST"
+printf 'installed_at=%s\nnode_detected=%s\narchitecture_detected=%s\n' \
+  "$(date -u +%FT%TZ)" "$(/usr/bin/node --version)" "$(uname -m)" \
+  >> "${STAGE_DIR}/GATEWAY-BUILD-MANIFEST"
+install -d -m 0755 "${STAGE_DIR}/public/guacamole"
+cp -a -- "${ROOT_DIR}/public/." "${STAGE_DIR}/public/"
+
+log "installing pinned Node.js production dependencies"
+npm --prefix "${STAGE_DIR}" ci --omit=dev --ignore-scripts
+chmod -R go-w "${STAGE_DIR}"
+
+rm -rf -- "${GATEWAY_PREFIX}"
+mv -- "${STAGE_DIR}" "${GATEWAY_PREFIX}"
+STAGE_DIR=""
+
+install -d -m 0700 -o root -g root "${CONFIG_DIR}"
+if [[ ! -f ${ENV_FILE} ]]; then
+  command -v openssl >/dev/null 2>&1 || die "openssl is required to generate the token key"
+  umask 077
+  TOKEN_KEY="$(openssl rand -base64 32)"
+  printf 'GUAC_WEB_HOST=127.0.0.1\nGUAC_WEB_PORT=8080\nGUACD_HOST=127.0.0.1\nGUACD_PORT=4822\nGUAC_TOKEN_KEY=%s\n' \
+    "${TOKEN_KEY}" > "${ENV_FILE}"
+fi
+chown root:root "${ENV_FILE}"
+chmod 0600 "${ENV_FILE}"
+
+install -m 0644 "${ROOT_DIR}/deploy/guacd.service" /etc/systemd/system/guacd.service
+install -m 0644 "${ROOT_DIR}/deploy/guacamole-lite.service" \
+  /etc/systemd/system/guacamole-lite.service
+
+systemctl daemon-reload
+systemctl enable guacd.service guacamole-lite.service
+systemctl restart guacd.service
+systemctl restart guacamole-lite.service
+
+"${SCRIPT_DIR}/verify.sh"
+log "installation complete; use scripts/open-tunnel.sh from your workstation"

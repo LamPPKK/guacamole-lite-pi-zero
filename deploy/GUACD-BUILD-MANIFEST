@@ -1,0 +1,9 @@
+component=apache-guacamole-server
+branch=staging/1.6.1
+commit=f22a2df129d9ecf279466e9bcf44cd026e23e6bd
+prefix=/opt/guacamole-server/1.6.1-staging
+configure_cflags=-O2 -Wno-deprecated-declarations
+configure_options=--with-rdp --with-vnc --without-vorbis --without-pulse --without-pango --without-terminal --without-ssh --disable-ssh-agent --without-telnet --without-webp --without-websockets --disable-kubernetes --disable-guacenc --disable-guaclog
+protocols=rdp,vnc
+freerdp_reference_version=3.15.0
+supported_architecture=aarch64
