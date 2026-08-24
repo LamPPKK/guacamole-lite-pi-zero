@@ -186,7 +186,7 @@ cp -a -- "${ROOT_DIR}/public/." "${STAGE_DIR}/public/"
 
 log "installing pinned Node.js production dependencies"
 npm --prefix "${STAGE_DIR}" ci --omit=dev --ignore-scripts
-chmod -R go-w "${STAGE_DIR}"
+chmod -R a+rX,go-w "${STAGE_DIR}"
 
 DEPLOYMENT_TOUCHED=1
 rm -rf -- "${GATEWAY_PREFIX}"

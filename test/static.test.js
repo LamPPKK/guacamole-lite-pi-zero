@@ -97,6 +97,7 @@ test('pinned guacd build and installer cover SSH, RDP, VNC, and protected VPN ac
   assert.doesNotMatch(access, /GUAC_WEB_HOST=0\.0\.0\.0/);
   assert.match(install, /restore_install_backup/);
   assert.match(install, /DEPLOYMENT_TOUCHED/);
+  assert.match(install, /chmod -R a\+rX,go-w "\$\{STAGE_DIR\}"/);
   assert.match(server, /Configured VPN address is unavailable; retrying/);
 });
 
