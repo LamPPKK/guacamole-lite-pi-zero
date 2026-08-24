@@ -51,7 +51,7 @@ if [[ ${INSTALL_PACKAGES} -eq 1 ]]; then
   apt-get update
   apt-get install -y --no-install-recommends \
     autoconf automake build-essential ca-certificates curl fonts-dejavu-core git libtool libtool-bin \
-    pkg-config qrencode libcairo2-dev libfreerdp3-dev libgcrypt20-dev libjpeg62-turbo-dev \
+    pkg-config qrencode libcairo2-dev freerdp3-dev libgcrypt20-dev libjpeg62-turbo-dev \
     libpango1.0-dev libpng-dev libssh2-1-dev libssl-dev libvncserver-dev uuid-dev
 fi
 

@@ -75,6 +75,8 @@ test('pinned guacd build and installer cover SSH, RDP, VNC, and protected VPN ac
 
   assert.match(build, /libpango1\.0-dev/);
   assert.match(build, /libssh2-1-dev/);
+  assert.match(build, /freerdp3-dev/);
+  assert.doesNotMatch(build, /libfreerdp3-dev/);
   assert.match(build, /fonts-dejavu-core/);
   assert.match(build, /--with-terminal/);
   assert.match(build, /--with-ssh/);
