@@ -106,7 +106,6 @@ CFLAGS='-O2 -Wno-deprecated-declarations' ./configure \
   --with-ssh \
   --without-vorbis \
   --without-pulse \
-  --disable-ssh-agent \
   --without-telnet \
   --without-webp \
   --without-websockets \

@@ -80,6 +80,8 @@ test('pinned guacd build and installer cover SSH, RDP, VNC, and protected VPN ac
   assert.match(build, /fonts-dejavu-core/);
   assert.match(build, /--with-terminal/);
   assert.match(build, /--with-ssh/);
+  assert.doesNotMatch(build, /--(?:enable|disable)-ssh-agent/);
+  assert.doesNotMatch(manifest, /--(?:enable|disable)-ssh-agent/);
   assert.match(manifest, /protocols=ssh,rdp,vnc/);
   assert.match(access, /is_private_ipv4/);
   assert.match(access, /TOTP login/);
