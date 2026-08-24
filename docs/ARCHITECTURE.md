@@ -3,7 +3,8 @@
 ```text
 Browser on the workstation or private VPN peer
     | Default: HTTP + WebSocket carried inside an SSH local forward
-    | Optional: exact private VPN IP + HTTP Basic Auth
+    | Optional: exact private VPN IP over an encrypted VPN
+    | Passwordless TOTP session in both modes
     v
 configured-IP:8080  Node.js gateway / guacamole-lite
     | Guacamole protocol over loopback
@@ -15,14 +16,19 @@ configured-IP:8080  Node.js gateway / guacamole-lite
 Private IPv4 target on the network / local Pi SSH service
 ```
 
-The gateway serves four static assets, the `/healthz` endpoint, the
-`/api/token` token endpoint, and a WebSocket managed by `guacamole-lite`. The
-same process applies Host/Origin validation, optional Basic Auth, body and
-WebSocket size limits, the target allowlist, and the single-session limit.
+The gateway serves four static assets, the `/healthz` endpoint, TOTP
+authentication endpoints, the `/api/token` token endpoint, and a WebSocket
+managed by `guacamole-lite`. The same process applies Host/Origin validation,
+TOTP replay/rate controls, in-memory web sessions, body and WebSocket size
+limits, the target allowlist, and the single-session limit.
+The browser carries its opaque login session in an `Authorization` header from
+origin-scoped `sessionStorage`. A generated connection token is one-use, bound
+to that login session in server memory, and cannot outlive session revocation.
+Active WebSockets are tracked so logout, expiry, or eviction closes them.
 The local-Pi shortcut is normalized and revalidated as SSH on exact loopback
 port 22; it does not expose other services bound to the Pi's loopback interface.
 The default listener is loopback. VPN mode refuses wildcard/public binds and
-requires both an exact assigned private/CGNAT address and Basic Auth.
+requires an exact assigned private/CGNAT address. TOTP login remains mandatory.
 If the configured VPN address is temporarily absent during boot, the Node.js
 process remains active and retries the bind every five seconds. Other listener
 errors still fail normally and are handled by systemd's bounded restart policy.
@@ -51,9 +57,12 @@ headers still contain deprecated declarations.
   its home directory.
 - The runtime secret exists only in `/etc/guacamole-lite/env`, owned by
   `root:root` with mode `0600`. systemd reads it before launching the service.
-- VPN mode stores only the SHA-256 digest of the generated high-entropy Basic
-  Auth credential. The cleartext password is printed once and not persisted.
+- The same file holds the random 160-bit TOTP enrollment secret. The installer
+  prints its QR/manual representation only when enrollment is created in an
+  interactive terminal; a root administrator can deliberately display it
+  again. Non-interactive output is refused unless explicitly overridden.
 - Both units use `ProtectSystem=strict`, `NoNewPrivileges`, an empty capability
   set, and Unix/IPv4/IPv6 address-family restrictions.
 
-There is no database. Connection settings and credentials are not persisted.
+There is no database. Web sessions, connection settings, and target credentials
+are not persisted.

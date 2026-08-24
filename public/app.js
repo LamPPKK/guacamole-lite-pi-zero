@@ -1,6 +1,15 @@
 'use strict';
 
 const form = document.querySelector('#connection-form');
+const workspace = document.querySelector('#workspace');
+const authGate = document.querySelector('#auth-gate');
+const loginForm = document.querySelector('#login-form');
+const authCodeInput = document.querySelector('#auth-code');
+const authError = document.querySelector('#auth-error');
+const loginButton = document.querySelector('#login-button');
+const loginLabel = document.querySelector('#login-label');
+const logoutButton = document.querySelector('#logout-button');
+const skipLink = document.querySelector('#skip-link');
 const protocolInput = document.querySelector('#protocol');
 const portInput = document.querySelector('#port');
 const hostnameInput = document.querySelector('#hostname');
@@ -27,9 +36,12 @@ const sessionTitle = document.querySelector('#session-title');
 const sessionProtocol = document.querySelector('#session-protocol');
 const viewportSize = document.querySelector('#viewport-size');
 const guacamoleAvailable = typeof Guacamole !== 'undefined';
+const AUTH_STORAGE_KEY = 'pi_remote_session';
 
 let client = null;
 let connectionHadError = false;
+let authenticated = false;
+let authCheckSequence = 0;
 let previousSshTarget = { hostname: '', port: '22' };
 const keyboard = guacamoleAvailable ? new Guacamole.Keyboard(display) : null;
 
@@ -60,6 +72,78 @@ function setBusy(busy) {
   connectButton.disabled = busy;
   connectButton.classList.toggle('busy', busy);
   connectLabel.textContent = busy ? 'Negotiating…' : 'Start session';
+}
+
+function setLoginBusy(busy) {
+  loginButton.disabled = busy;
+  loginButton.classList.toggle('busy', busy);
+  loginLabel.textContent = busy ? 'Verifying…' : 'Unlock console';
+}
+
+function storedSession() {
+  return sessionStorage.getItem(AUTH_STORAGE_KEY) || '';
+}
+
+function authorizationHeaders(headers = {}) {
+  const session = storedSession();
+  return session ? { ...headers, Authorization: `Bearer ${session}` } : headers;
+}
+
+function clearConnectionForm() {
+  form.reset();
+  previousSshTarget = { hostname: '', port: '22' };
+  hostnameInput.readOnly = false;
+  portInput.readOnly = false;
+  passwordInput.type = 'password';
+  passwordToggle.setAttribute('aria-pressed', 'false');
+  passwordToggle.setAttribute('aria-label', 'Show password');
+  updateProtocolFields();
+  updateSelfTarget();
+}
+
+function setAuthenticationState(allowed) {
+  authenticated = allowed;
+  authGate.hidden = allowed;
+  workspace.hidden = !allowed;
+  logoutButton.hidden = !allowed;
+  skipLink.href = allowed ? '#workspace' : '#auth-code';
+  skipLink.textContent = allowed ? 'Skip to remote console' : 'Skip to authentication';
+  document.body.dataset.auth = allowed ? 'ready' : 'locked';
+  if (!allowed) {
+    sessionStorage.removeItem(AUTH_STORAGE_KEY);
+    if (client) disconnect();
+    clearConnectionForm();
+    authCodeInput.value = '';
+    window.setTimeout(() => authCodeInput.focus(), 0);
+  }
+}
+
+async function checkAuthentication() {
+  const sequence = ++authCheckSequence;
+  if (location.protocol === 'file:') {
+    setAuthenticationState(false);
+    authError.textContent = 'Authentication preview — open through the gateway to sign in.';
+    authError.hidden = false;
+    return;
+  }
+  if (!storedSession()) {
+    setAuthenticationState(false);
+    return;
+  }
+  try {
+    const response = await fetch('/api/auth/status', {
+      cache: 'no-store',
+      headers: authorizationHeaders()
+    });
+    const result = await response.json();
+    if (sequence !== authCheckSequence) return;
+    setAuthenticationState(response.ok && result.authenticated === true);
+  } catch {
+    if (sequence !== authCheckSequence) return;
+    setAuthenticationState(false);
+    authError.textContent = 'The authentication service is unavailable.';
+    authError.hidden = false;
+  }
 }
 
 function updateProtocolFields() {
@@ -100,7 +184,7 @@ function updateSelfTarget() {
 
 function setAccessMode(mode) {
   const vpn = mode === 'vpn';
-  accessLabel.textContent = vpn ? 'VPN + BASIC AUTH' : 'SSH TUNNEL';
+  accessLabel.textContent = vpn ? 'VPN + TOTP' : 'SSH TUNNEL + TOTP';
   accessRoute.textContent = vpn ? 'VPN IP' : 'LOOPBACK';
   accessFooter.textContent = vpn ? 'WEB ACCESS VIA VPN' : 'WEB ACCESS VIA SSH';
   viewerRoute.textContent = `${location.host || '127.0.0.1:8080'} · GUACD:4822`;
@@ -174,6 +258,50 @@ function toggleFullscreen() {
 
 protocolInput.addEventListener('change', updateProtocolFields);
 selfTargetInput.addEventListener('change', updateSelfTarget);
+authCodeInput.addEventListener('input', () => {
+  authCodeInput.value = authCodeInput.value.replace(/\D/g, '').slice(0, 6);
+  authError.hidden = true;
+});
+loginForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (location.protocol === 'file:') return;
+  setLoginBusy(true);
+  authError.hidden = true;
+  try {
+    const response = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: authCodeInput.value })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Authentication failed');
+    if (!/^[A-Za-z0-9_-]{43}$/.test(result.session || '')) {
+      throw new Error('The gateway returned an invalid session');
+    }
+    sessionStorage.setItem(AUTH_STORAGE_KEY, result.session);
+    authCheckSequence += 1;
+    setAuthenticationState(true);
+    checkGateway();
+    window.setTimeout(() => protocolInput.focus(), 0);
+  } catch (error) {
+    authError.textContent = error.message;
+    authError.hidden = false;
+    authCodeInput.select();
+  } finally {
+    setLoginBusy(false);
+  }
+});
+logoutButton.addEventListener('click', async () => {
+  const session = storedSession();
+  authCheckSequence += 1;
+  setAuthenticationState(false);
+  try {
+    await fetch('/api/logout', {
+      method: 'POST',
+      headers: session ? { Authorization: `Bearer ${session}` } : {}
+    });
+  } catch {}
+});
 window.addEventListener('resize', scaleDisplay);
 window.addEventListener('fullscreenchange', () => {
   fullscreenButton.setAttribute('aria-label', document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen');
@@ -200,7 +328,10 @@ window.addEventListener('keydown', (event) => {
 }, true);
 
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) checkGateway();
+  if (!document.hidden) {
+    checkGateway();
+    if (authenticated) checkAuthentication();
+  }
 });
 
 form.addEventListener('submit', async (event) => {
@@ -225,10 +356,14 @@ form.addEventListener('submit', async (event) => {
   try {
     const response = await fetch('/api/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authorizationHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(values)
     });
     const result = await response.json();
+    if (response.status === 401) {
+      setAuthenticationState(false);
+      throw new Error('Your web session has expired');
+    }
     if (!response.ok) throw new Error(result.error || 'Failed to create token');
 
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -291,4 +426,8 @@ form.addEventListener('submit', async (event) => {
 updateProtocolFields();
 updateViewportSize();
 checkGateway();
+checkAuthentication();
 setInterval(checkGateway, 30000);
+setInterval(() => {
+  if (authenticated) checkAuthentication();
+}, 60000);

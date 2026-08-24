@@ -54,6 +54,7 @@ WEB_HOST="$(env_value GUAC_WEB_HOST)"
 WEB_PORT="$(env_value GUAC_WEB_PORT)"
 GUACD_LISTEN_HOST="$(env_value GUACD_HOST)"
 GUACD_LISTEN_PORT="$(env_value GUACD_PORT)"
+TOTP_SECRET="$(env_value GUAC_TOTP_SECRET)"
 WEB_HOST="${WEB_HOST:-127.0.0.1}"
 WEB_PORT="${WEB_PORT:-8080}"
 GUACD_LISTEN_HOST="${GUACD_LISTEN_HOST:-127.0.0.1}"
@@ -88,34 +89,45 @@ check_service guacamole-lite.service
 check_listener "${GUACD_LISTEN_PORT}" "${GUACD_LISTEN_HOST}:${GUACD_LISTEN_PORT}"
 check_listener "${WEB_PORT}" "${WEB_HOST}:${WEB_PORT}"
 
-if [[ ${WEB_HOST} == "127.0.0.1" ]]; then
-  HEALTH="$(curl --noproxy '*' --fail --silent --show-error --max-time 5 \
-    --header "Host: 127.0.0.1:${WEB_PORT}" \
-    "http://127.0.0.1:${WEB_PORT}/healthz" 2>/dev/null || true)"
-  if /usr/bin/node -e '
-    const health = JSON.parse(process.argv[1]);
-    if (health.status !== "ok" || health.guacd !== true || health.accessMode !== "ssh-tunnel") process.exit(1);
-  ' "${HEALTH}" 2>/dev/null; then
-    pass "gateway health endpoint reports guacd ready in SSH tunnel mode"
-  else
-    fail "unexpected health response: ${HEALTH:-none}"
-  fi
+if [[ ${TOTP_SECRET} =~ ^[A-Z2-7]{32}$ ]]; then
+  pass "passwordless TOTP authentication has a valid 160-bit enrollment secret"
 else
-  AUTH_USER="$(env_value GUAC_BASIC_AUTH_USER)"
-  AUTH_DIGEST="$(env_value GUAC_BASIC_AUTH_SHA256)"
-  if is_private_ipv4 "${WEB_HOST}" && [[ ${AUTH_USER} =~ ^[A-Za-z0-9._-]{1,32}$ ]] \
-      && [[ ${AUTH_DIGEST} =~ ^[a-fA-F0-9]{64}$ ]]; then
-    pass "VPN mode uses one exact private address with configured Basic Auth"
-  else
-    fail "VPN mode requires an exact private address and valid Basic Auth configuration"
-  fi
-  HTTP_STATUS="$(curl --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
-    --max-time 5 "http://${WEB_HOST}:${WEB_PORT}/healthz" || true)"
-  if [[ ${HTTP_STATUS} == "401" ]]; then
-    pass "VPN web access rejects unauthenticated requests"
-  else
-    fail "VPN web access returned HTTP ${HTTP_STATUS:-none} without credentials, expected 401"
-  fi
+  fail "GUAC_TOTP_SECRET must contain exactly 32 Base32 characters"
+fi
+
+if [[ ${WEB_HOST} != "127.0.0.1" ]] && ! is_private_ipv4 "${WEB_HOST}"; then
+  fail "VPN mode must use one exact private address"
+fi
+
+BASE_URL="http://${WEB_HOST}:${WEB_PORT}"
+HEALTH="$(curl --noproxy '*' --fail --silent --show-error --max-time 5 \
+  "${BASE_URL}/healthz" 2>/dev/null || true)"
+EXPECTED_MODE="ssh-tunnel"
+[[ ${WEB_HOST} == "127.0.0.1" ]] || EXPECTED_MODE="vpn"
+if /usr/bin/node -e '
+  const health = JSON.parse(process.argv[1]);
+  if (health.status !== "ok" || health.guacd !== true || health.accessMode !== process.argv[2]) process.exit(1);
+' "${HEALTH}" "${EXPECTED_MODE}" 2>/dev/null; then
+  pass "gateway health endpoint reports guacd ready in ${EXPECTED_MODE} mode"
+else
+  fail "unexpected health response: ${HEALTH:-none}"
+fi
+
+AUTH_STATUS="$(curl --noproxy '*' --fail --silent --show-error --max-time 5 \
+  "${BASE_URL}/api/auth/status" 2>/dev/null || true)"
+if [[ ${AUTH_STATUS} == '{"authenticated":false}' ]]; then
+  pass "unauthenticated browser starts at the TOTP login gate"
+else
+  fail "unexpected unauthenticated status response: ${AUTH_STATUS:-none}"
+fi
+
+TOKEN_STATUS="$(curl --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  --max-time 5 --header 'Content-Type: application/json' --data '{"protocol":"ssh","self":true}' \
+  "${BASE_URL}/api/token" || true)"
+if [[ ${TOKEN_STATUS} == "401" ]]; then
+  pass "connection-token API rejects requests without a TOTP session"
+else
+  fail "connection-token API returned HTTP ${TOKEN_STATUS:-none} without a session, expected 401"
 fi
 
 if [[ ${FAILURES} -ne 0 ]]; then

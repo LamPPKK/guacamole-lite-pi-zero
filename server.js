@@ -12,17 +12,31 @@ const WEB_PORT = parsePort(process.env.GUAC_WEB_PORT, 8080);
 const GUACD_HOST = process.env.GUACD_HOST || '127.0.0.1';
 const GUACD_PORT = parsePort(process.env.GUACD_PORT, 4822);
 const TOKEN_TTL_MS = 5 * 60 * 1000;
+const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const AUTH_FAILURE_WINDOW_MS = 5 * 60 * 1000;
+const AUTH_FAILURE_LIMIT = 5;
+const MAX_AUTH_SESSIONS = 8;
+const MAX_AUTH_FAILURE_IDENTITIES = 256;
+const MAX_PENDING_CONNECTIONS = 16;
 const MAX_CONCURRENT_SESSIONS = 1;
 const MAX_WEBSOCKET_PAYLOAD = 256 * 1024;
 const VPN_BIND_RETRY_MS = 5 * 1000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const TOKEN_KEY = loadTokenKey();
+const TOTP_SECRET = loadTotpSecret();
 const ALLOWED_WEB_HOSTS = loadAllowedWebHosts();
-const BASIC_AUTH = loadBasicAuth();
 const ACCESS_MODE = isLoopbackBind(WEB_HOST) ? 'ssh-tunnel' : 'vpn';
 const TOKEN_MAC_KEY = crypto.hkdfSync(
   'sha256', TOKEN_KEY, Buffer.alloc(0), Buffer.from('guacamole-lite-token-mac'), 32
 );
+const SESSION_HASH_KEY = crypto.hkdfSync(
+  'sha256', TOKEN_KEY, Buffer.alloc(0), Buffer.from('guacamole-lite-web-session'), 32
+);
+const authSessions = new Map();
+const authFailures = new Map();
+const pendingConnections = new Map();
+const activeSessionSockets = new Map();
+let lastAcceptedTotpCounter = -1;
 
 const STATIC_FILES = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -48,6 +62,34 @@ function loadTokenKey() {
     throw new Error('GUAC_TOKEN_KEY must be exactly 32 bytes encoded as base64');
   }
   return key;
+}
+
+function decodeBase32(value) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0;
+  let accumulator = 0;
+  const output = [];
+  for (const character of value) {
+    const index = alphabet.indexOf(character);
+    if (index === -1) throw new Error('GUAC_TOTP_SECRET must use unpadded Base32');
+    accumulator = (accumulator << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      bits -= 8;
+      output.push((accumulator >>> bits) & 0xff);
+    }
+  }
+  return Buffer.from(output);
+}
+
+function loadTotpSecret() {
+  const encoded = process.env.GUAC_TOTP_SECRET || '';
+  if (!/^[A-Z2-7]{32}$/.test(encoded)) {
+    throw new Error('GUAC_TOTP_SECRET must be a 20-byte secret encoded as 32 Base32 characters');
+  }
+  const secret = decodeBase32(encoded);
+  if (secret.length !== 20) throw new Error('GUAC_TOTP_SECRET must decode to exactly 20 bytes');
+  return secret;
 }
 
 function isLoopbackBind(hostname) {
@@ -76,16 +118,6 @@ function loadAllowedWebHosts() {
   return new Set(hosts);
 }
 
-function loadBasicAuth() {
-  const username = process.env.GUAC_BASIC_AUTH_USER || '';
-  const digestHex = process.env.GUAC_BASIC_AUTH_SHA256 || '';
-  if (!username && !digestHex) return null;
-  if (!/^[A-Za-z0-9._-]{1,32}$/.test(username) || !/^[a-fA-F0-9]{64}$/.test(digestHex)) {
-    throw new Error('GUAC_BASIC_AUTH_USER and GUAC_BASIC_AUTH_SHA256 must both be valid');
-  }
-  return { username, digest: Buffer.from(digestHex, 'hex') };
-}
-
 function validateAccessConfiguration() {
   if (!isLoopbackBind(WEB_HOST)) {
     if (!isPrivateIPv4(WEB_HOST)) {
@@ -93,9 +125,6 @@ function validateAccessConfiguration() {
     }
     if (!ALLOWED_WEB_HOSTS.has(WEB_HOST.toLowerCase())) {
       throw new Error('GUAC_ALLOWED_WEB_HOSTS must include GUAC_WEB_HOST');
-    }
-    if (!BASIC_AUTH) {
-      throw new Error('Basic authentication is required when GUAC_WEB_HOST is not loopback');
     }
   }
 }
@@ -207,44 +236,177 @@ function isAllowedHostHeader(req) {
   }
 }
 
-function isAuthorized(req) {
-  if (!BASIC_AUTH) return true;
-  const header = req.headers.authorization;
-  if (typeof header !== 'string' || header.length > 4096) return false;
-  const match = /^Basic ([A-Za-z0-9+/]+=*)$/.exec(header);
-  if (!match) return false;
-  let credentials;
-  try {
-    credentials = Buffer.from(match[1], 'base64').toString('utf8');
-  } catch {
-    return false;
+function totpCode(counter) {
+  const message = Buffer.alloc(8);
+  message.writeBigUInt64BE(BigInt(counter));
+  const digest = crypto.createHmac('sha1', TOTP_SECRET).update(message).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary = (digest.readUInt32BE(offset) & 0x7fffffff) % 1000000;
+  return String(binary).padStart(6, '0');
+}
+
+function verifyTotp(code, now = Date.now()) {
+  if (!/^\d{6}$/.test(code)) return false;
+  const currentCounter = Math.floor(now / 30000);
+  let matchingCounter = -1;
+  const received = Buffer.from(code);
+  for (let offset = -1; offset <= 1; offset += 1) {
+    const counter = currentCounter + offset;
+    const expected = Buffer.from(totpCode(counter));
+    if (crypto.timingSafeEqual(received, expected)) matchingCounter = counter;
   }
-  if (!credentials.startsWith(`${BASIC_AUTH.username}:`)) return false;
-  const digest = crypto.createHash('sha256').update(credentials).digest();
-  return crypto.timingSafeEqual(digest, BASIC_AUTH.digest);
+  if (matchingCounter <= lastAcceptedTotpCounter) return false;
+  lastAcceptedTotpCounter = matchingCounter;
+  return matchingCounter >= 0;
+}
+
+function bearerValue(req) {
+  const header = req.headers.authorization;
+  if (typeof header !== 'string' || header.length > 4096) return null;
+  const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(header);
+  return match ? match[1] : null;
+}
+
+function sessionHash(value) {
+  return crypto.createHmac('sha256', SESSION_HASH_KEY).update(value).digest('hex');
+}
+
+function pruneSessions(now = Date.now()) {
+  for (const [hash, session] of authSessions) {
+    if (session.expiration <= now) revokeSession(hash);
+  }
+}
+
+function authorizedSessionHash(req, now = Date.now()) {
+  const value = bearerValue(req);
+  if (!value) return null;
+  const hash = sessionHash(value);
+  const session = authSessions.get(hash);
+  if (!session || session.expiration <= now) {
+    if (session) revokeSession(hash);
+    return null;
+  }
+  return hash;
+}
+
+function isAuthorized(req, now = Date.now()) {
+  return authorizedSessionHash(req, now) !== null;
+}
+
+function removeActiveSocket(sessionHashValue, socket) {
+  const sockets = activeSessionSockets.get(sessionHashValue);
+  if (!sockets) return;
+  sockets.delete(socket);
+  if (sockets.size === 0) activeSessionSockets.delete(sessionHashValue);
+}
+
+function revokeSession(hash) {
+  const session = authSessions.get(hash);
+  if (session) clearTimeout(session.expirationTimer);
+  authSessions.delete(hash);
+  for (const [tokenHashValue, grant] of pendingConnections) {
+    if (grant.sessionHash === hash) pendingConnections.delete(tokenHashValue);
+  }
+  const sockets = activeSessionSockets.get(hash);
+  activeSessionSockets.delete(hash);
+  if (sockets) {
+    for (const socket of sockets) socket.destroy();
+  }
+}
+
+function issueSession(now = Date.now()) {
+  pruneSessions(now);
+  while (authSessions.size >= MAX_AUTH_SESSIONS) {
+    revokeSession(authSessions.keys().next().value);
+  }
+  const value = crypto.randomBytes(32).toString('base64url');
+  const hash = sessionHash(value);
+  const expiration = now + AUTH_SESSION_TTL_MS;
+  const expirationTimer = setTimeout(() => revokeSession(hash), AUTH_SESSION_TTL_MS);
+  expirationTimer.unref();
+  authSessions.set(hash, { expiration, expirationTimer });
+  return value;
+}
+
+function destroySession(req) {
+  const hash = authorizedSessionHash(req);
+  if (hash) revokeSession(hash);
+}
+
+function connectionTokenHash(token) {
+  return crypto.createHmac('sha256', SESSION_HASH_KEY).update(`connection.${token}`).digest('hex');
+}
+
+function authorizeConnectionToken(token, sessionHashValue, now = Date.now()) {
+  for (const [hash, grant] of pendingConnections) {
+    const session = authSessions.get(grant.sessionHash);
+    if (grant.expiration <= now || !session || session.expiration <= now) {
+      if (session?.expiration <= now) revokeSession(grant.sessionHash);
+      pendingConnections.delete(hash);
+    }
+  }
+  while (pendingConnections.size >= MAX_PENDING_CONNECTIONS) {
+    pendingConnections.delete(pendingConnections.keys().next().value);
+  }
+  pendingConnections.set(connectionTokenHash(token), {
+    sessionHash: sessionHashValue,
+    expiration: now + TOKEN_TTL_MS
+  });
+}
+
+function consumeConnectionAuthorization(token, now = Date.now()) {
+  const hash = connectionTokenHash(token);
+  const grant = pendingConnections.get(hash);
+  const session = grant ? authSessions.get(grant.sessionHash) : null;
+  if (!grant || grant.expiration <= now || !session || session.expiration <= now) {
+    if (session?.expiration <= now) revokeSession(grant.sessionHash);
+    pendingConnections.delete(hash);
+    return null;
+  }
+  pendingConnections.delete(hash);
+  return grant.sessionHash;
+}
+
+function requestIdentity(req) {
+  return req.socket.remoteAddress || 'unknown';
+}
+
+function authThrottle(identity, now = Date.now()) {
+  const recent = (authFailures.get(identity) || []).filter(
+    (timestamp) => timestamp > now - AUTH_FAILURE_WINDOW_MS
+  );
+  if (recent.length === 0) authFailures.delete(identity);
+  else authFailures.set(identity, recent);
+  if (recent.length < AUTH_FAILURE_LIMIT) return 0;
+  return Math.max(1, Math.ceil((recent[0] + AUTH_FAILURE_WINDOW_MS - now) / 1000));
+}
+
+function recordAuthFailure(identity, now = Date.now()) {
+  const recent = (authFailures.get(identity) || []).filter(
+    (timestamp) => timestamp > now - AUTH_FAILURE_WINDOW_MS
+  );
+  recent.push(now);
+  if (!authFailures.has(identity) && authFailures.size >= MAX_AUTH_FAILURE_IDENTITIES) {
+    authFailures.delete(authFailures.keys().next().value);
+  }
+  authFailures.set(identity, recent.slice(-AUTH_FAILURE_LIMIT));
 }
 
 function requireAuthorization(req, res) {
-  if (isAuthorized(req)) return true;
-  const body = Buffer.from(JSON.stringify({ error: 'Authentication required' }));
-  res.writeHead(401, {
-    'WWW-Authenticate': 'Basic realm="PI Remote", charset="UTF-8"',
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': body.length,
-    'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff'
-  });
-  res.end(body);
-  return false;
+  const hash = authorizedSessionHash(req);
+  if (hash) return hash;
+  writeJson(res, 401, { error: 'Access code required' });
+  return null;
 }
 
-function writeJson(res, status, payload) {
+function writeJson(res, status, payload, extraHeaders = {}) {
   const body = Buffer.from(JSON.stringify(payload));
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': body.length,
     'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff'
+    'X-Content-Type-Options': 'nosniff',
+    ...extraHeaders
   });
   res.end(body);
 }
@@ -415,9 +577,6 @@ const server = http.createServer(async (req, res) => {
     writeJson(res, 421, { error: 'Allowed Host header required' });
     return;
   }
-  if (!requireAuthorization(req, res)) {
-    return;
-  }
   const requestUrl = new URL(req.url, 'http://localhost');
 
   if (req.method === 'GET' && requestUrl.pathname === '/healthz') {
@@ -430,14 +589,68 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && requestUrl.pathname === '/api/auth/status') {
+    writeJson(res, 200, { authenticated: isAuthorized(req) });
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/auth') {
+    if (!sameOrigin(req)) {
+      writeJson(res, 403, { error: 'Origin rejected' });
+      return;
+    }
+    const identity = requestIdentity(req);
+    const retryAfter = authThrottle(identity);
+    if (retryAfter > 0) {
+      writeJson(res, 429, { error: 'Too many attempts. Try again shortly.' }, {
+        'Retry-After': String(retryAfter)
+      });
+      return;
+    }
+    try {
+      const body = await readJson(req);
+      const code = typeof body.code === 'string' ? body.code.trim() : '';
+      if (!verifyTotp(code)) {
+        recordAuthFailure(identity);
+        writeJson(res, 401, { error: 'Invalid or expired access code' });
+        return;
+      }
+      authFailures.delete(identity);
+      const session = issueSession();
+      writeJson(res, 200, {
+        authenticated: true,
+        session,
+        expiresIn: AUTH_SESSION_TTL_MS / 1000
+      });
+    } catch {
+      recordAuthFailure(identity);
+      writeJson(res, 400, { error: 'Invalid authentication request' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/logout') {
+    if (!sameOrigin(req)) {
+      writeJson(res, 403, { error: 'Origin rejected' });
+      return;
+    }
+    destroySession(req);
+    writeJson(res, 200, { authenticated: false });
+    return;
+  }
+
   if (req.method === 'POST' && requestUrl.pathname === '/api/token') {
+    const sessionHashValue = requireAuthorization(req, res);
+    if (!sessionHashValue) return;
     if (!sameOrigin(req)) {
       writeJson(res, 403, { error: 'Origin rejected' });
       return;
     }
     try {
       const payload = buildConnection(await readJson(req));
-      writeJson(res, 200, { token: encryptToken(payload), expiresIn: TOKEN_TTL_MS / 1000 });
+      const token = encryptToken(payload);
+      authorizeConnectionToken(token, sessionHashValue);
+      writeJson(res, 200, { token, expiresIn: TOKEN_TTL_MS / 1000 });
     } catch (error) {
       writeJson(res, 400, { error: error.message });
     }
@@ -453,7 +666,7 @@ const websocketOptions = {
   clientTracking: false,
   maxPayload: MAX_WEBSOCKET_PAYLOAD,
   verifyClient: ({ origin, req }) => {
-    if (!isAllowedHostHeader(req) || !isAuthorized(req)) return false;
+    if (!isAllowedHostHeader(req)) return false;
     if (origin) {
       try {
         if (new URL(origin).host !== req.headers.host) return false;
@@ -468,11 +681,17 @@ const websocketOptions = {
       const tokens = requestUrl.searchParams.getAll('token');
       if (tokens.length !== 1) return false;
       validateConnectionSettings(decryptToken(tokens[0]));
+      const sessionHashValue = consumeConnectionAuthorization(tokens[0]);
+      if (!sessionHashValue) return false;
       acceptedSessions += 1;
+      const sockets = activeSessionSockets.get(sessionHashValue) || new Set();
+      sockets.add(req.socket);
+      activeSessionSockets.set(sessionHashValue, sockets);
       let released = false;
       req.socket.once('close', () => {
         if (released) return;
         released = true;
+        removeActiveSocket(sessionHashValue, req.socket);
         acceptedSessions = Math.max(0, acceptedSessions - 1);
       });
       return true;

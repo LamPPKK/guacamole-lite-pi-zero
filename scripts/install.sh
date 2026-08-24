@@ -8,8 +8,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 BUILD_GUACD=1
 INSTALL_BUILD_PACKAGES=1
 VPN_ADDRESS=""
-VPN_USER="pi-remote"
-VPN_USER_SET=0
+TOTP_ENROLLMENT_CREATED=0
 
 usage() {
   cat <<'EOF'
@@ -17,13 +16,13 @@ Usage: sudo ./scripts/install.sh [options]
 
 Options:
   --skip-guacd-build  require an existing pinned guacd build
-  --no-apt            do not install guacd build dependencies
-  --vpn-address IP    bind to one existing private VPN IP with Basic Auth
-  --vpn-user USER     Basic Auth username used with --vpn-address
+  --no-apt            do not install required system packages
+  --vpn-address IP    bind to one existing private VPN IP with TOTP login
   -h, --help          show this help
 
 The gateway uses loopback/SSH tunnel access by default. VPN mode binds only to
-the exact supplied IP and prints a generated password once. This script does
+the exact supplied IP. On first installation, this script prints a QR code for
+the passwordless authenticator login. This script does
 not configure a firewall or modify SSH, WARP, Tailscale, Cloudflared, Samba,
 or Pi Connect.
 EOF
@@ -38,22 +37,11 @@ while (($#)); do
       VPN_ADDRESS="$2"
       shift
       ;;
-    --vpn-user)
-      [[ $# -ge 2 ]] || die "--vpn-user requires a username"
-      VPN_USER="$2"
-      VPN_USER_SET=1
-      shift
-      ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
   shift
 done
-
-[[ -z ${VPN_ADDRESS} || ${VPN_USER} =~ ^[A-Za-z0-9._-]{1,32}$ ]] \
-  || die "VPN username must contain 1-32 letters, digits, dots, underscores, or hyphens"
-[[ ${VPN_USER_SET} -eq 0 || -n ${VPN_ADDRESS} ]] \
-  || die "--vpn-user requires --vpn-address"
 
 require_root
 require_arm64
@@ -79,6 +67,15 @@ else
     || die "installed guacd does not match the pinned commit"
   grep -qx 'protocols=ssh,rdp,vnc' "${GUACD_PREFIX}/BUILD-MANIFEST" \
     || die "installed guacd does not provide SSH, RDP, and VNC"
+fi
+
+if ! grep -q '^GUAC_TOTP_SECRET=[A-Z2-7]\{32\}$' "${ENV_FILE}" 2>/dev/null \
+    && ! command -v qrencode >/dev/null 2>&1; then
+  [[ ${INSTALL_BUILD_PACKAGES} -eq 1 ]] \
+    || die "qrencode is required for first-install enrollment; remove --no-apt or install it"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y --no-install-recommends qrencode
 fi
 
 install -d -m 0700 "${BACKUP_ROOT}" "${STATE_DIR}"
@@ -112,6 +109,7 @@ chmod 0600 "${STATE_DIR}/last-backup" "${BACKUP_DIR}"/*.list
 log "backup saved to ${BACKUP_DIR}"
 
 STAGE_DIR=""
+TEMP_ENV=""
 DEPLOYMENT_TOUCHED=0
 INSTALL_SUCCEEDED=0
 
@@ -151,6 +149,9 @@ cleanup() {
   set +e
   if [[ -n ${STAGE_DIR:-} && -d ${STAGE_DIR} ]]; then
     rm -rf -- "${STAGE_DIR}"
+  fi
+  if [[ -n ${TEMP_ENV:-} && -f ${TEMP_ENV} ]]; then
+    rm -f -- "${TEMP_ENV}"
   fi
   if [[ ${exit_status} -ne 0 && ${DEPLOYMENT_TOUCHED} -eq 1 \
         && ${INSTALL_SUCCEEDED} -eq 0 ]]; then
@@ -195,10 +196,29 @@ STAGE_DIR=""
 install -d -m 0700 -o root -g root "${CONFIG_DIR}"
 if [[ ! -f ${ENV_FILE} ]]; then
   command -v openssl >/dev/null 2>&1 || die "openssl is required to generate the token key"
+  command -v base32 >/dev/null 2>&1 || die "base32 is required to generate the TOTP secret"
   umask 077
   TOKEN_KEY="$(openssl rand -base64 32)"
-  printf 'GUAC_WEB_HOST=127.0.0.1\nGUAC_WEB_PORT=8080\nGUAC_ALLOWED_WEB_HOSTS=127.0.0.1,localhost\nGUACD_HOST=127.0.0.1\nGUACD_PORT=4822\nGUAC_TOKEN_KEY=%s\n' \
-    "${TOKEN_KEY}" > "${ENV_FILE}"
+  TOTP_SECRET="$(openssl rand 20 | base32 | tr -d '=')"
+  printf 'GUAC_WEB_HOST=127.0.0.1\nGUAC_WEB_PORT=8080\nGUAC_ALLOWED_WEB_HOSTS=127.0.0.1,localhost\nGUACD_HOST=127.0.0.1\nGUACD_PORT=4822\nGUAC_TOKEN_KEY=%s\nGUAC_TOTP_SECRET=%s\n' \
+    "${TOKEN_KEY}" "${TOTP_SECRET}" > "${ENV_FILE}"
+  TOTP_ENROLLMENT_CREATED=1
+else
+  TEMP_ENV="$(mktemp "${CONFIG_DIR}/.env.auth.XXXXXX")"
+  EXISTING_TOTP_SECRET="$(awk -F= '$1 == "GUAC_TOTP_SECRET" { print $2; exit }' "${ENV_FILE}")"
+  awk '!/^(GUAC_BASIC_AUTH_USER|GUAC_BASIC_AUTH_SHA256|GUAC_TOTP_SECRET)=/' \
+    "${ENV_FILE}" > "${TEMP_ENV}"
+  if [[ ${EXISTING_TOTP_SECRET} =~ ^[A-Z2-7]{32}$ ]]; then
+    TOTP_SECRET="${EXISTING_TOTP_SECRET}"
+  else
+    command -v openssl >/dev/null 2>&1 || die "openssl is required to generate the TOTP secret"
+    command -v base32 >/dev/null 2>&1 || die "base32 is required to generate the TOTP secret"
+    TOTP_SECRET="$(openssl rand 20 | base32 | tr -d '=')"
+    TOTP_ENROLLMENT_CREATED=1
+  fi
+  printf 'GUAC_TOTP_SECRET=%s\n' "${TOTP_SECRET}" >> "${TEMP_ENV}"
+  mv -f -- "${TEMP_ENV}" "${ENV_FILE}"
+  TEMP_ENV=""
 fi
 chown root:root "${ENV_FILE}"
 chmod 0600 "${ENV_FILE}"
@@ -212,7 +232,7 @@ systemctl enable guacd.service guacamole-lite.service
 systemctl restart guacd.service
 
 if [[ -n ${VPN_ADDRESS} ]]; then
-  "${SCRIPT_DIR}/configure-access.sh" vpn "${VPN_ADDRESS}" "${VPN_USER}"
+  "${SCRIPT_DIR}/configure-access.sh" vpn "${VPN_ADDRESS}"
   log "installation complete; VPN access is enabled on the exact configured address"
 else
   systemctl restart guacamole-lite.service
@@ -223,5 +243,12 @@ else
   else
     log "installation complete; the existing protected VPN access mode was preserved"
   fi
+fi
+if [[ ${TOTP_ENROLLMENT_CREATED} -eq 1 && -t 1 ]]; then
+  "${SCRIPT_DIR}/show-otp-qr.sh"
+  log "scan the QR code now; rerun sudo ./scripts/show-otp-qr.sh to display it again"
+elif [[ ${TOTP_ENROLLMENT_CREATED} -eq 1 ]]; then
+  log "TOTP enrollment created, but the QR was not printed to non-interactive output"
+  log "open a private terminal and run sudo ./scripts/show-otp-qr.sh"
 fi
 INSTALL_SUCCEEDED=1

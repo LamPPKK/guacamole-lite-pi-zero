@@ -14,11 +14,34 @@ sudo ./scripts/configure-access.sh status
 ip -4 -brief address
 ```
 
-The configured VPN IP must still exist on a live interface. A browser must
-first complete the HTTP Basic Auth prompt before the UI or WebSocket can load.
+The configured VPN IP must still exist on a live interface. The UI will show
+the same six-digit authenticator login used in SSH-tunnel mode.
 During boot, `guacamole-lite` logs a retry every five seconds while it waits for
 that address. If retries continue after the VPN is online, reconfigure the
 gateway with the Pi's current exact VPN address.
+
+## The authenticator code is rejected
+
+Confirm the phone and Pi clocks are synchronized. TOTP depends on Unix time;
+the gateway allows one 30-second step of clock drift in either direction.
+Each successfully used code is accepted only once, so wait for the next code
+before opening another browser session.
+
+After five failed attempts from the same address, wait up to five minutes. If
+the authenticator entry was lost, a root administrator can display the original
+QR and manual setup key again:
+
+```sh
+sudo ./scripts/show-otp-qr.sh
+timedatectl status
+```
+
+The installer deliberately skips QR output when stdout is not an interactive
+terminal. Run `show-otp-qr.sh` from a private interactive terminal after an
+automated installation; do not redirect its output into a shared log.
+
+Restarting `guacamole-lite` signs out every browser but does not change the
+enrollment secret.
 
 ## Health reports `degraded`
 
@@ -65,8 +88,9 @@ sudo ./scripts/configure-access.sh ssh-tunnel
 ./scripts/open-tunnel.sh pi@pi-host
 ```
 
-The first command removes the Basic Auth settings, binds the web gateway back
-to loopback, restarts it, and verifies the result. It does not stop the VPN.
+The first command binds the web gateway back to loopback, restarts it, and
+verifies the result. TOTP login remains enabled and the command does not stop
+the VPN.
 
 Gateway logs intentionally omit credentials and tokens:
 

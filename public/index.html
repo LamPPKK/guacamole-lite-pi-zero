@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#090d0f">
   <title>Pi Remote — Edge Console</title>
-  <link rel="stylesheet" href="./styles.css?v=edge-4">
+  <link rel="stylesheet" href="./styles.css?v=edge-5">
 </head>
 <body>
-  <a class="skip-link" href="#workspace">Skip to remote console</a>
+  <a id="skip-link" class="skip-link" href="#auth-code">Skip to authentication</a>
   <div class="ambient-grid" aria-hidden="true"></div>
 
   <header class="topbar">
@@ -27,10 +27,40 @@
       <span id="gateway-status" class="gateway-state online">
         <span class="gateway-light" aria-hidden="true"></span><span id="gateway-label">GATEWAY ONLINE</span>
       </span>
+      <button id="logout-button" class="logout-button" type="button" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5v16h4M14 8l4 4-4 4M18 12H9"/></svg><span>Lock</span>
+      </button>
     </div>
   </header>
 
-  <main id="workspace" class="workspace">
+  <section id="auth-gate" class="auth-gate" aria-labelledby="auth-title">
+    <div class="auth-card">
+      <span class="auth-index" aria-hidden="true">AUTH//01</span>
+      <div class="auth-emblem" aria-hidden="true">
+        <svg viewBox="0 0 64 64"><path d="M18 29v-8a14 14 0 0 1 28 0v8M12 29h40v27H12z"/><path d="M32 39v8M28 39h8"/></svg>
+        <span></span>
+      </div>
+      <div class="auth-content">
+        <p class="kicker">IDENTITY CHECK · TOTP</p>
+        <h1 id="auth-title">Enter your access code</h1>
+        <p class="auth-intro">Open your authenticator app and enter the current six-digit code. No username or account is required.</p>
+        <form id="login-form" class="login-form">
+          <label class="field" for="auth-code">
+            <span class="field-label">Authenticator code</span>
+            <span class="otp-shell"><span aria-hidden="true">TOTP</span><input id="auth-code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" placeholder="000000" required></span>
+          </label>
+          <p id="auth-error" class="auth-error" role="alert" hidden></p>
+          <button id="login-button" class="auth-submit" type="submit">
+            <span class="auth-submit-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h13M14 7l5 5-5 5"/></svg></span>
+            <span id="login-label">Unlock console</span><span class="auth-submit-loader" aria-hidden="true"></span>
+          </button>
+        </form>
+        <footer class="auth-meta" aria-label="Authentication parameters"><span>RFC 6238</span><span>6 DIGITS</span><span>30 SEC</span></footer>
+      </div>
+    </div>
+  </section>
+
+  <main id="workspace" class="workspace" hidden>
     <aside class="connection-panel" aria-labelledby="connection-title">
       <div class="panel-index" aria-hidden="true">01</div>
       <header class="panel-heading">
@@ -151,6 +181,6 @@
   </main>
 
   <script src="./guacamole/all.min.js"></script>
-  <script src="./app.js?v=edge-4"></script>
+  <script src="./app.js?v=edge-5"></script>
 </body>
 </html>

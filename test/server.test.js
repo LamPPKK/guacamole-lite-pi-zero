@@ -12,6 +12,37 @@ const WebSocket = require('ws');
 
 const root = path.resolve(__dirname, '..');
 const tokenKey = Buffer.alloc(32, 7);
+const totpSecret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+const totpKey = Buffer.from('12345678901234567890');
+
+function totpCodeForCounter(counter) {
+  const message = Buffer.alloc(8);
+  message.writeBigUInt64BE(BigInt(counter));
+  const digest = crypto.createHmac('sha1', totpKey).update(message).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary = (digest.readUInt32BE(offset) & 0x7fffffff) % 1000000;
+  return String(binary).padStart(6, '0');
+}
+
+function totpCode(now = Date.now()) {
+  return totpCodeForCounter(Math.floor(now / 30000));
+}
+
+function definitelyInvalidTotp(now = Date.now()) {
+  const counter = Math.floor(now / 30000);
+  const accepted = new Set([-2, -1, 0, 1, 2].map(
+    (offset) => totpCodeForCounter(counter + offset)
+  ));
+  for (let candidate = 0; candidate < 1000000; candidate += 1) {
+    const code = String(candidate).padStart(6, '0');
+    if (!accepted.has(code)) return code;
+  }
+  throw new Error('Unable to construct an invalid TOTP fixture');
+}
+
+test('TOTP fixture matches the RFC 6238 SHA-1 truncation vector', () => {
+  assert.equal(totpCode(59000), '287082');
+});
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -58,6 +89,7 @@ async function startGateway(extraEnv = {}) {
       GUACD_HOST: '127.0.0.1',
       GUACD_PORT: '65534',
       GUAC_TOKEN_KEY: tokenKey.toString('base64'),
+      GUAC_TOTP_SECRET: totpSecret,
       GUAC_ALLOWED_WEB_HOSTS: '127.0.0.1,localhost',
       ...extraEnv
     },
@@ -82,6 +114,25 @@ async function startGateway(extraEnv = {}) {
   }
   child.kill('SIGTERM');
   throw new Error(`gateway did not start: ${stderr}`);
+}
+
+async function authenticate(port, code = totpCode()) {
+  const response = await request(port, {
+    method: 'POST',
+    pathname: '/api/auth',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: `http://127.0.0.1:${port}`
+    },
+    body: JSON.stringify({ code })
+  });
+  assert.equal(response.status, 200, response.body);
+  assert.equal(response.headers['set-cookie'], undefined);
+  const result = JSON.parse(response.body);
+  assert.equal(result.authenticated, true);
+  assert.equal(result.expiresIn, 43200);
+  assert.match(result.session, /^[A-Za-z0-9_-]{43}$/);
+  return result.session;
 }
 
 function stopGateway(child) {
@@ -131,14 +182,72 @@ function websocketResult(url, headers = {}) {
   });
 }
 
+function openWebSocket(url) {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url);
+    const timer = setTimeout(() => {
+      socket.terminate();
+      reject(new Error('WebSocket open timed out'));
+    }, 3000);
+    socket.once('open', () => {
+      clearTimeout(timer);
+      resolve(socket);
+    });
+    socket.once('unexpected-response', (_request, response) => {
+      clearTimeout(timer);
+      response.resume();
+      reject(new Error(`WebSocket rejected with ${response.statusCode}`));
+    });
+    socket.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
+function waitForSocketClose(socket) {
+  if (socket.readyState === WebSocket.CLOSED) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.terminate();
+      reject(new Error('WebSocket was not closed when its login session was revoked'));
+    }, 3000);
+    socket.once('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+async function startTcpSink() {
+  const port = await freePort();
+  const sockets = new Set();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', resolve);
+  });
+  return {
+    port,
+    close: () => new Promise((resolve) => {
+      for (const socket of sockets) socket.destroy();
+      server.close(resolve);
+    })
+  };
+}
+
 test('gateway issues a bounded SSH token and rejects unsafe targets and hosts', async (t) => {
   const gateway = await startGateway();
   t.after(() => stopGateway(gateway.child));
+  const session = await authenticate(gateway.port);
 
   const tokenResponse = await request(gateway.port, {
     method: 'POST',
     pathname: '/api/token',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       protocol: 'ssh',
       hostname: '192.168.1.20',
@@ -165,7 +274,7 @@ test('gateway issues a bounded SSH token and rejects unsafe targets and hosts', 
   const publicTarget = await request(gateway.port, {
     method: 'POST',
     pathname: '/api/token',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ protocol: 'ssh', hostname: '8.8.8.8' })
   });
   assert.equal(publicTarget.status, 400);
@@ -173,7 +282,7 @@ test('gateway issues a bounded SSH token and rejects unsafe targets and hosts', 
   const thisPiResponse = await request(gateway.port, {
     method: 'POST',
     pathname: '/api/token',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       protocol: 'ssh', self: true, hostname: '8.8.8.8', port: '65535', username: 'pi'
     })
@@ -192,7 +301,7 @@ test('gateway issues a bounded SSH token and rejects unsafe targets and hosts', 
     const response = await request(gateway.port, {
       method: 'POST',
       pathname: '/api/token',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(unsafeLoopback)
     });
     assert.equal(response.status, 400);
@@ -206,52 +315,103 @@ test('gateway issues a bounded SSH token and rejects unsafe targets and hosts', 
   assert.doesNotMatch(`${output.stdout}\n${output.stderr}`, /temporary-secret/);
 });
 
-test('HTTP Basic Auth protects pages and API requests when configured', async (t) => {
-  const username = 'pi-remote';
-  const password = 'correct-horse-battery-staple';
-  const digest = crypto.createHash('sha256').update(`${username}:${password}`).digest('hex');
-  const gateway = await startGateway({
-    GUAC_BASIC_AUTH_USER: username,
-    GUAC_BASIC_AUTH_SHA256: digest
-  });
+test('passwordless TOTP login protects token and WebSocket access', async (t) => {
+  const guacd = await startTcpSink();
+  t.after(() => guacd.close());
+  const gateway = await startGateway({ GUACD_PORT: String(guacd.port) });
   t.after(() => stopGateway(gateway.child));
 
-  const challenge = await request(gateway.port);
-  assert.equal(challenge.status, 401);
-  assert.match(challenge.headers['www-authenticate'], /^Basic realm="PI Remote"/);
+  const page = await request(gateway.port);
+  assert.equal(page.status, 200);
+  assert.match(page.body, /Enter your access code/);
+  assert.doesNotMatch(page.body, /name="username"[^>]*auth/i);
 
+  const statusBefore = await request(gateway.port, { pathname: '/api/auth/status' });
+  assert.deepEqual(JSON.parse(statusBefore.body), { authenticated: false });
+  const unauthenticatedToken = await request(gateway.port, {
+    method: 'POST', pathname: '/api/token', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ protocol: 'rdp', hostname: '10.0.0.10' })
+  });
+  assert.equal(unauthenticatedToken.status, 401);
+
+  const validCode = totpCode();
+  const wrongCode = definitelyInvalidTotp();
+  const crossOrigin = await request(gateway.port, {
+    method: 'POST', pathname: '/api/auth',
+    headers: { 'Content-Type': 'application/json', Origin: 'http://evil.example' },
+    body: JSON.stringify({ code: validCode })
+  });
+  assert.equal(crossOrigin.status, 403);
   const wrong = await request(gateway.port, {
-    headers: { Authorization: `Basic ${Buffer.from(`${username}:wrong`).toString('base64')}` }
+    method: 'POST', pathname: '/api/auth', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: wrongCode })
   });
   assert.equal(wrong.status, 401);
 
-  const authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-  const page = await request(gateway.port, { headers: { Authorization: authorization } });
-  assert.equal(page.status, 200);
-  assert.match(page.body, /SSH — Terminal/);
+  const session = await authenticate(gateway.port, validCode);
+  const statusAfter = await request(gateway.port, {
+    pathname: '/api/auth/status', headers: { Authorization: `Bearer ${session}` }
+  });
+  assert.deepEqual(JSON.parse(statusAfter.body), { authenticated: true });
+
+  const replay = await request(gateway.port, {
+    method: 'POST', pathname: '/api/auth', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: validCode })
+  });
+  assert.equal(replay.status, 401);
 
   const tokenResponse = await request(gateway.port, {
     method: 'POST',
     pathname: '/api/token',
-    headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ protocol: 'rdp', hostname: '10.0.0.10' })
   });
   assert.equal(tokenResponse.status, 200);
   const token = JSON.parse(tokenResponse.body).token;
 
   const unauthenticatedSocket = await websocketResult(
-    `ws://127.0.0.1:${gateway.port}/?token=${encodeURIComponent(token)}`
+    `ws://127.0.0.1:${gateway.port}/?token=not-a-server-authorized-token`
   );
   assert.deepEqual(unauthenticatedSocket, { opened: false, status: 401 });
 
-  const authenticatedSocket = await websocketResult(
-    `ws://127.0.0.1:${gateway.port}/?token=${encodeURIComponent(token)}`,
-    { Authorization: authorization }
+  const authenticatedSocket = await openWebSocket(
+    `ws://127.0.0.1:${gateway.port}/?token=${encodeURIComponent(token)}`
   );
-  assert.equal(authenticatedSocket.opened, true);
+  const socketClosed = waitForSocketClose(authenticatedSocket);
+
+  const pendingResponse = await request(gateway.port, {
+    method: 'POST',
+    pathname: '/api/token',
+    headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ protocol: 'vnc', hostname: '10.0.0.11' })
+  });
+  assert.equal(pendingResponse.status, 200);
+  const pendingToken = JSON.parse(pendingResponse.body).token;
+
+  const logout = await request(gateway.port, {
+    method: 'POST', pathname: '/api/logout',
+    headers: { Authorization: `Bearer ${session}` }
+  });
+  assert.equal(logout.status, 200);
+  await socketClosed;
+
+  const consumedToken = await websocketResult(
+    `ws://127.0.0.1:${gateway.port}/?token=${encodeURIComponent(token)}`
+  );
+  assert.deepEqual(consumedToken, { opened: false, status: 401 });
+  const revokedPendingToken = await websocketResult(
+    `ws://127.0.0.1:${gateway.port}/?token=${encodeURIComponent(pendingToken)}`
+  );
+  assert.deepEqual(revokedPendingToken, { opened: false, status: 401 });
+  const expiredSession = await request(gateway.port, {
+    method: 'POST', pathname: '/api/token',
+    headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ protocol: 'rdp', hostname: '10.0.0.10' })
+  });
+  assert.equal(expiredSession.status, 401);
 });
 
-test('non-loopback web binding fails closed without Basic Auth', async () => {
+test('gateway fails closed without a valid TOTP enrollment secret', async () => {
   const child = spawn(process.execPath, ['server.js'], {
     cwd: root,
     env: {
@@ -260,8 +420,7 @@ test('non-loopback web binding fails closed without Basic Auth', async () => {
       GUAC_WEB_PORT: String(await freePort()),
       GUAC_ALLOWED_WEB_HOSTS: '127.0.0.1,localhost,192.168.123.45',
       GUAC_TOKEN_KEY: tokenKey.toString('base64'),
-      GUAC_BASIC_AUTH_USER: '',
-      GUAC_BASIC_AUTH_SHA256: ''
+      GUAC_TOTP_SECRET: ''
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -269,7 +428,27 @@ test('non-loopback web binding fails closed without Basic Auth', async () => {
   child.stderr.on('data', (chunk) => { stderr += chunk; });
   const exitCode = await new Promise((resolve) => child.once('exit', resolve));
   assert.notEqual(exitCode, 0);
-  assert.match(stderr, /Basic authentication is required/);
+  assert.match(stderr, /GUAC_TOTP_SECRET must be a 20-byte secret/);
+});
+
+test('TOTP login rate limits repeated invalid codes', async (t) => {
+  const gateway = await startGateway();
+  t.after(() => stopGateway(gateway.child));
+  const wrongCode = definitelyInvalidTotp();
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const response = await request(gateway.port, {
+      method: 'POST', pathname: '/api/auth', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: wrongCode })
+    });
+    assert.equal(response.status, 401);
+  }
+  const limited = await request(gateway.port, {
+    method: 'POST', pathname: '/api/auth', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: wrongCode })
+  });
+  assert.equal(limited.status, 429);
+  assert.ok(Number(limited.headers['retry-after']) > 0);
 });
 
 test('authenticated VPN mode waits for a late bind address instead of exiting', async (t) => {
@@ -280,8 +459,6 @@ test('authenticated VPN mode waits for a late bind address instead of exiting', 
     .find((address) => !assigned.has(address));
   assert.ok(vpnAddress, 'expected an unassigned private test address');
 
-  const username = 'pi-remote';
-  const password = 'boot-wait-test-password';
   const child = spawn(process.execPath, ['server.js'], {
     cwd: root,
     env: {
@@ -290,9 +467,7 @@ test('authenticated VPN mode waits for a late bind address instead of exiting', 
       GUAC_WEB_PORT: String(await freePort()),
       GUAC_ALLOWED_WEB_HOSTS: `127.0.0.1,localhost,${vpnAddress}`,
       GUAC_TOKEN_KEY: tokenKey.toString('base64'),
-      GUAC_BASIC_AUTH_USER: username,
-      GUAC_BASIC_AUTH_SHA256: crypto.createHash('sha256')
-        .update(`${username}:${password}`).digest('hex')
+      GUAC_TOTP_SECRET: totpSecret
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });

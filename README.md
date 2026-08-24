@@ -3,7 +3,7 @@
 A minimal SSH/RDP/VNC web console for low-memory ARM64 Raspberry Pi systems.
 SSH local forwarding is the secure default. An optional VPN mode binds the web
 gateway to one exact private VPN address and protects every HTTP and WebSocket
-request with generated Basic Auth credentials.
+session with a passwordless six-digit authenticator code.
 
 ![PI//REMOTE interface preview](docs/ui-preview.svg)
 
@@ -11,6 +11,8 @@ request with generated Basic Auth credentials.
 
 - A responsive UI down to 320 px with mouse, keyboard, touch, and fullscreen
   support.
+- First-install QR enrollment and passwordless RFC 6238 TOTP login with no web
+  username or account.
 - A `guacamole-lite` 1.2.0 gateway with five-minute tokens protected by
   AES-256-CBC encryption and HMAC-SHA256 authentication.
 - SSH, RDP, and VNC access to private IPv4 targets (RFC1918 and CGNAT), plus a
@@ -31,6 +33,7 @@ The installer does not modify SSH, WARP, Cloudflared, Samba, or Pi Connect.
 - Node.js and npm, with Node.js 20 or newer available at `/usr/bin/node`.
 - systemd and Internet access for the initial build and installation.
 - An SSH client on the workstation for the default access mode.
+- A TOTP authenticator app that can scan a standard `otpauth://` QR code.
 - For direct VPN access, an existing encrypted private VPN interface on the Pi.
 
 The Pi Zero 2 W builds `guacd` with one job to reduce peak memory use. The
@@ -49,21 +52,35 @@ sudo ./scripts/install.sh
 ```
 
 That command performs the complete pinned build, installs both hardened
-systemd services, generates the token key, starts the gateway, and verifies the
-result. It does not install or reconfigure VPN or SSH software.
+systemd services, generates the token and TOTP keys, starts the gateway, and
+verifies the result. At the end of the first successful interactive
+installation, scan the terminal QR code with an authenticator app. The same
+screen prints a manual setup key for apps that cannot scan the terminal. A
+non-interactive installation deliberately does not print either credential;
+open a private terminal and run the enrollment command afterward. The
+installer does not install or reconfigure VPN or SSH software.
+
+The QR contains the only web-login credential. Keep it and the manual setup key
+private. A root administrator can display the enrollment again with:
+
+```sh
+sudo ./scripts/show-otp-qr.sh
+```
+
+Enrollment follows [RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238)
+and the standard [Authenticator key URI format](https://github.com/google/google-authenticator/wiki/Key-Uri-Format).
 
 To use an existing WARP, Tailscale, WireGuard, or other private VPN address,
 find the address already assigned to the Pi and pass it during installation:
 
 ```sh
 ip -4 -brief address
-sudo ./scripts/install.sh --vpn-address 100.64.0.10 --vpn-user pi-remote
+sudo ./scripts/install.sh --vpn-address 100.64.0.10
 ```
 
-The address must be the Pi's exact RFC1918 or CGNAT address. The installer
-prints a generated web password once. Save it immediately. It will refuse
-`0.0.0.0`, public IP addresses, unassigned addresses, and VPN mode without
-authentication.
+The address must be the Pi's exact RFC1918 or CGNAT address. The installer will
+refuse `0.0.0.0`, public IP addresses, and unassigned addresses. TOTP login is
+mandatory in both tunnel and VPN modes.
 
 If the correct `guacd` build is already installed:
 
@@ -72,7 +89,8 @@ sudo ./scripts/install.sh --skip-guacd-build
 ```
 
 Use `--no-apt` to skip build dependency installation when the required
-packages are already present. Before replacing the gateway, the installer
+packages, including `qrencode` for first enrollment, are already present.
+Before replacing the gateway, the installer
 saves existing files under `/var/backups/guacamole-lite-pi/`.
 If any deployment, service restart, access configuration, or verification step
 then fails, the installer automatically restores that backup and restarts the
@@ -95,16 +113,18 @@ From macOS, Linux, or WSL in a checkout of this repository:
 
 Then open [http://127.0.0.1:8080](http://127.0.0.1:8080). Pass a second
 argument to use another local port, for example
-`./scripts/open-tunnel.sh pi@pi-host 9080`.
+`./scripts/open-tunnel.sh pi@pi-host 9080`. Enter only the current six-digit
+code from the enrolled authenticator app; the web login has no username or
+password field.
 
 ## Access through an existing VPN
 
 Open `http://VPN_IP:8080` from another authenticated peer on the same private
-VPN and enter the generated Basic Auth credentials. Switch modes later with:
+VPN and enter the current authenticator code. Switch modes later with:
 
 ```sh
 sudo ./scripts/configure-access.sh status
-sudo ./scripts/configure-access.sh vpn 100.64.0.10 pi-remote
+sudo ./scripts/configure-access.sh vpn 100.64.0.10
 sudo ./scripts/configure-access.sh ssh-tunnel
 ```
 
@@ -136,9 +156,9 @@ sudo journalctl -u guacd -u guacamole-lite --since today
 curl http://127.0.0.1:8080/healthz  # SSH tunnel mode
 ```
 
-In VPN mode, the health endpoint is also protected and returns HTTP 401
-without the generated Basic Auth credentials. `verify.sh` checks that
-fail-closed behavior without printing or storing the password.
+The minimal health endpoint remains unauthenticated for service monitoring.
+`verify.sh` confirms that the connection-token API rejects requests without a
+valid TOTP session.
 
 Validate a source checkout before committing:
 
@@ -153,7 +173,7 @@ Installation paths:
 |---|---|
 | Gateway and UI | `/opt/guacamole-lite/1.2.0` |
 | `guacd` | `/opt/guacamole-server/1.6.1-staging` |
-| Runtime secret | `/etc/guacamole-lite/env` |
+| Runtime and TOTP secrets | `/etc/guacamole-lite/env` |
 | Installer backups | `/var/backups/guacamole-lite-pi` |
 | Web listener | `127.0.0.1:8080` by default, or one exact private VPN IP |
 | `guacd` listener | `127.0.0.1:4822` in every mode |
@@ -199,6 +219,14 @@ SSH password authentication is supported. Private-key authentication and
 browser file transfer are intentionally not exposed in this minimal UI. If no
 host-key line is supplied, `guacd` cannot authenticate the SSH server identity;
 use the optional field whenever you know the target's trusted key.
+
+The web code is the sole login factor, so this is passwordless TOTP rather than
+true two-factor authentication. Successful login creates an in-memory 12-hour
+browser session. Its bearer value is kept in the tab's origin-scoped
+`sessionStorage`, so another service on a different localhost or VPN port does
+not receive it. Logout, expiry, eviction, or a gateway restart invalidates the
+session and closes its active remote connection. Because the gateway itself
+serves HTTP, the SSH tunnel or encrypted private VPN remains mandatory.
 
 `MemoryHigh` and `MemoryMax` only take effect when the kernel exposes the
 cgroup v2 memory controller. Without it, the gateway still uses an 80 MiB V8
