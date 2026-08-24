@@ -7,6 +7,19 @@ the tunnel with `-o ExitOnForwardFailure=yes` or use
 `scripts/open-tunnel.sh`. Check whether another process already uses local port
 8080; pass 9080 as the script's second argument if needed.
 
+For VPN mode, inspect the exact configured bind without exposing secrets:
+
+```sh
+sudo ./scripts/configure-access.sh status
+ip -4 -brief address
+```
+
+The configured VPN IP must still exist on a live interface. A browser must
+first complete the HTTP Basic Auth prompt before the UI or WebSocket can load.
+During boot, `guacamole-lite` logs a retry every five seconds while it waits for
+that address. If retries continue after the VPN is online, reconfigure the
+gateway with the Pi's current exact VPN address.
+
 ## Health reports `degraded`
 
 ```sh
@@ -20,16 +33,34 @@ sudo ss -ltnp | grep ':4822'
 ```sh
 ldd /opt/guacamole-server/1.6.1-staging/lib/libguac-client-rdp.so.0
 ldd /opt/guacamole-server/1.6.1-staging/lib/libguac-client-vnc.so.0
+ldd /opt/guacamole-server/1.6.1-staging/lib/libguac-client-ssh.so.0
 ```
 
 Neither command should report `not found`.
 
-## RDP or VNC cannot connect
+## SSH, RDP, or VNC cannot connect
 
 Confirm that the target is a literal private IPv4 address, the port is
 correct, and the Pi can reach it. For RDP, try `NLA`, `TLS`, or `Automatic`
 security. A domain account may require the Domain field. For VNC, confirm that
 the server supports password authentication and 16-bit color depth.
+
+For SSH, confirm port 22 (or your custom port) is reachable from the Pi and the
+account allows password authentication. A malformed or mismatched known-host
+entry intentionally prevents the connection. Obtain a trusted entry out of
+band, for example from a workstation that already trusts the host.
+
+## Switch back to the safe default
+
+If VPN routing changes or you no longer need direct VPN access:
+
+```sh
+sudo ./scripts/configure-access.sh ssh-tunnel
+./scripts/open-tunnel.sh pi@pi-host
+```
+
+The first command removes the Basic Auth settings, binds the web gateway back
+to loopback, restarts it, and verifies the result. It does not stop the VPN.
 
 Gateway logs intentionally omit credentials and tokens:
 

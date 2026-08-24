@@ -12,8 +12,8 @@ usage() {
   cat <<'EOF'
 Usage: sudo ./scripts/build-guacd.sh [--force] [--no-apt]
 
-Build the pinned Apache guacd source with RDP/VNC support only.
-  --force   rebuild even if the pinned installation is already present
+Build the pinned Apache guacd source with SSH/RDP/VNC support only.
+  --force   replace an existing prefix not recognized as managed by this repo
   --no-apt  do not install Debian build dependencies
 EOF
 }
@@ -31,21 +31,28 @@ done
 require_root
 require_arm64
 
+MANAGED_PREFIX=0
+if [[ -f "${GUACD_PREFIX}/BUILD-MANIFEST" ]] \
+    && grep -qx 'component=apache-guacamole-server' "${GUACD_PREFIX}/BUILD-MANIFEST" \
+    && grep -qx "commit=${GUACD_COMMIT}" "${GUACD_PREFIX}/BUILD-MANIFEST"; then
+  MANAGED_PREFIX=1
+fi
+
 if [[ ${FORCE} -eq 0 && -x "${GUACD_PREFIX}/sbin/guacd" \
-      && -f "${GUACD_PREFIX}/BUILD-MANIFEST" ]] \
-      && grep -qx "commit=${GUACD_COMMIT}" "${GUACD_PREFIX}/BUILD-MANIFEST"; then
+      && ${MANAGED_PREFIX} -eq 1 ]] \
+      && grep -qx 'protocols=ssh,rdp,vnc' "${GUACD_PREFIX}/BUILD-MANIFEST"; then
   log "pinned guacd build is already installed"
   exit 0
 fi
 
 if [[ ${INSTALL_PACKAGES} -eq 1 ]]; then
-  log "installing minimal RDP/VNC build dependencies"
+  log "installing minimal SSH/RDP/VNC build dependencies"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y --no-install-recommends \
-    autoconf automake build-essential ca-certificates curl git libtool libtool-bin \
+    autoconf automake build-essential ca-certificates curl fonts-dejavu-core git libtool libtool-bin \
     pkg-config libcairo2-dev libfreerdp3-dev libgcrypt20-dev libjpeg62-turbo-dev \
-    libpng-dev libssl-dev libvncserver-dev uuid-dev
+    libpango1.0-dev libpng-dev libssh2-1-dev libssl-dev libvncserver-dev uuid-dev
 fi
 
 for command_name in autoreconf git make pkg-config; do
@@ -79,25 +86,26 @@ git -C "${BUILD_DIR}" checkout -q --detach FETCH_HEAD
   || die "downloaded source does not match the pinned commit"
 
 if [[ -e ${GUACD_PREFIX} ]]; then
-  [[ ${FORCE} -eq 1 ]] || die "${GUACD_PREFIX} exists but does not match the pinned build; use --force"
+  [[ ${FORCE} -eq 1 || ${MANAGED_PREFIX} -eq 1 ]] \
+    || die "${GUACD_PREFIX} exists but is not a managed pinned build; use --force"
   OLD_PREFIX="${GUACD_PREFIX}.backup-$(timestamp_utc)"
   log "moving the previous prefix to ${OLD_PREFIX}"
   mv -- "${GUACD_PREFIX}" "${OLD_PREFIX}"
   PREFIX_TOUCHED=1
 fi
 
-log "configuring a minimal RDP/VNC build"
+log "configuring a minimal SSH/RDP/VNC build"
 cd -- "${BUILD_DIR}"
 autoreconf -fi
 CFLAGS='-O2 -Wno-deprecated-declarations' ./configure \
   --prefix="${GUACD_PREFIX}" \
   --with-rdp \
   --with-vnc \
+  --with-pango \
+  --with-terminal \
+  --with-ssh \
   --without-vorbis \
   --without-pulse \
-  --without-pango \
-  --without-terminal \
-  --without-ssh \
   --disable-ssh-agent \
   --without-telnet \
   --without-webp \
@@ -112,7 +120,7 @@ make install
 ldconfig
 
 [[ -x "${GUACD_PREFIX}/sbin/guacd" ]] || die "guacd was not installed"
-for client in rdp vnc; do
+for client in rdp vnc ssh; do
   library="${GUACD_PREFIX}/lib/freerdp3/libguac-client-${client}.so"
   if [[ ! -e ${library} ]]; then
     library="$(find "${GUACD_PREFIX}/lib" -name "libguac-client-${client}.so*" -type f -print -quit)"

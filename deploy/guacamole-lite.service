@@ -1,5 +1,5 @@
 [Unit]
-Description=Loopback-only Guacamole Lite web gateway
+Description=Protected Guacamole Lite web gateway
 After=network-online.target guacd.service
 Wants=network-online.target
 Requires=guacd.service

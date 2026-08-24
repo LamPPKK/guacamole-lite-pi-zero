@@ -143,6 +143,11 @@ input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px r
 .rdp-options { margin-top: 13px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .rdp-options .field { margin: 0; }
 .rdp-options[hidden] { display: none; }
+.ssh-options { margin-top: 13px; }
+.ssh-options[hidden] { display: none; }
+.ssh-options input { font-family: var(--mono); font-size: 0.72rem; }
+.ssh-options p { margin: 7px 0 0; color: #7f8b85; font-size: 0.68rem; line-height: 1.45; }
+.ssh-options code { color: var(--muted-strong); font-family: var(--mono); }
 
 .connect-button {
   position: relative; width: 100%; min-height: 52px; margin-top: 22px; padding: 0 15px; display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 10px;

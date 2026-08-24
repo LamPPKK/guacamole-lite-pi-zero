@@ -11,6 +11,10 @@ const statusBadge = document.querySelector('#status');
 const statusText = document.querySelector('#status-text');
 const gatewayStatus = document.querySelector('#gateway-status');
 const gatewayLabel = document.querySelector('#gateway-label');
+const accessLabel = document.querySelector('#access-label');
+const accessRoute = document.querySelector('#access-route');
+const accessFooter = document.querySelector('#access-footer');
+const viewerRoute = document.querySelector('#viewer-route');
 const connectButton = document.querySelector('#connect-button');
 const connectLabel = document.querySelector('#connect-label');
 const disconnectButton = document.querySelector('#disconnect');
@@ -54,11 +58,22 @@ function setBusy(busy) {
 }
 
 function updateProtocolFields() {
-  const rdp = protocolInput.value === 'rdp';
+  const protocol = protocolInput.value;
   document.querySelectorAll('.rdp-only').forEach((element) => {
-    element.hidden = !rdp;
+    element.hidden = protocol !== 'rdp';
   });
-  portInput.value = rdp ? '3389' : '5900';
+  document.querySelectorAll('.ssh-only').forEach((element) => {
+    element.hidden = protocol !== 'ssh';
+  });
+  portInput.value = { rdp: '3389', vnc: '5900', ssh: '22' }[protocol];
+}
+
+function setAccessMode(mode) {
+  const vpn = mode === 'vpn';
+  accessLabel.textContent = vpn ? 'VPN + BASIC AUTH' : 'SSH TUNNEL';
+  accessRoute.textContent = vpn ? 'VPN IP' : 'LOOPBACK';
+  accessFooter.textContent = vpn ? 'WEB ACCESS VIA VPN' : 'WEB ACCESS VIA SSH';
+  viewerRoute.textContent = `${location.host || '127.0.0.1:8080'} · GUACD:4822`;
 }
 
 function updateViewportSize() {
@@ -108,13 +123,15 @@ function disconnect() {
 async function checkGateway() {
   if (location.protocol === 'file:') {
     setGateway('UI PREVIEW', 'preview');
+    setAccessMode('ssh-tunnel');
     return;
   }
   try {
     const response = await fetch('/healthz', { cache: 'no-store' });
-    if (!response.ok) throw new Error('gateway unavailable');
     const health = await response.json();
+    if (!response.ok && response.status !== 503) throw new Error('gateway unavailable');
     setGateway(health.guacd ? 'GATEWAY ONLINE' : 'GUACD OFFLINE', health.guacd ? 'online' : 'error');
+    setAccessMode(health.accessMode);
   } catch {
     setGateway('GATEWAY OFFLINE', 'error');
   }
@@ -158,7 +175,7 @@ document.addEventListener('visibilitychange', () => {
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!guacamoleAvailable || location.protocol === 'file:') {
-    setStatus('Open through an SSH tunnel', 'error');
+    setStatus('Open through the configured gateway', 'error');
     setGateway('UI PREVIEW', 'preview');
     return;
   }
@@ -220,14 +237,16 @@ form.addEventListener('submit', async (event) => {
       setBusy(false);
     };
 
-    const mouse = new Guacamole.Mouse(remoteDisplay.getElement());
-    mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (mouseState) => {
-      if (client === sessionClient) sessionClient.sendMouseState(mouseState, true);
-    };
-    const touchscreen = new Guacamole.Mouse.Touchscreen(remoteDisplay.getElement());
-    touchscreen.onmousedown = touchscreen.onmouseup = touchscreen.onmousemove = (mouseState) => {
-      if (client === sessionClient) sessionClient.sendMouseState(mouseState, true);
-    };
+    if (values.protocol !== 'ssh') {
+      const mouse = new Guacamole.Mouse(remoteDisplay.getElement());
+      mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (mouseState) => {
+        if (client === sessionClient) sessionClient.sendMouseState(mouseState, true);
+      };
+      const touchscreen = new Guacamole.Mouse.Touchscreen(remoteDisplay.getElement());
+      touchscreen.onmousedown = touchscreen.onmouseup = touchscreen.onmousemove = (mouseState) => {
+        if (client === sessionClient) sessionClient.sendMouseState(mouseState, true);
+      };
+    }
     sessionClient.connect();
   } catch (error) {
     connectionHadError = true;

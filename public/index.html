@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#090d0f">
   <title>Pi Remote — Edge Console</title>
-  <link rel="stylesheet" href="./styles.css?v=edge-2">
+  <link rel="stylesheet" href="./styles.css?v=edge-3">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to remote console</a>
@@ -22,7 +22,7 @@
     <div class="topbar-status" aria-label="Gateway status">
       <span class="secure-chip">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v10H5z"/></svg>
-        SSH TUNNEL
+        <span id="access-label">SSH TUNNEL</span>
       </span>
       <span id="gateway-status" class="gateway-state online">
         <span class="gateway-light" aria-hidden="true"></span><span id="gateway-label">GATEWAY ONLINE</span>
@@ -46,7 +46,7 @@
           <label class="field">
             <span class="field-label">Protocol</span>
             <span class="select-shell">
-              <select id="protocol" name="protocol"><option value="rdp">RDP — Windows</option><option value="vnc">VNC — Cross-platform</option></select>
+              <select id="protocol" name="protocol"><option value="rdp">RDP — Windows</option><option value="vnc">VNC — Cross-platform</option><option value="ssh">SSH — Terminal</option></select>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
             </span>
           </label>
@@ -85,6 +85,14 @@
               <span class="select-shell"><select name="security"><option value="any">Automatic</option><option value="nla">NLA</option><option value="tls">TLS</option><option value="rdp">RDP legacy</option></select><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg></span>
             </label>
           </div>
+
+          <div class="ssh-options ssh-only" hidden>
+            <label class="field">
+              <span class="field-label">Known host entry <span>recommended</span></span>
+              <input name="hostKey" autocomplete="off" spellcheck="false" placeholder="host ssh-ed25519 AAAA…">
+            </label>
+            <p>Paste one OpenSSH <code>known_hosts</code> line to verify the server identity.</p>
+          </div>
         </fieldset>
 
         <button id="connect-button" type="submit" class="connect-button">
@@ -95,10 +103,10 @@
 
       <div class="security-note">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.7 2.8 8.7 7 10 4.2-1.3 7-5.3 7-10V6zM9 12l2 2 4-5"/></svg>
-        <p><strong>Local access only.</strong> Only private LAN/WARP addresses are allowed. Encrypted tokens expire after five minutes.</p>
+        <p><strong>Protected access.</strong> Only private LAN/VPN addresses are allowed. Encrypted tokens expire after five minutes.</p>
       </div>
       <footer class="panel-footer" aria-label="Security parameters">
-        <div><span>SLOTS</span><strong>01 / 01</strong></div><div><span>CIPHER</span><strong>AES-256</strong></div><div><span>ROUTE</span><strong>LOOPBACK</strong></div>
+        <div><span>SLOTS</span><strong>01 / 01</strong></div><div><span>CIPHER</span><strong>AES-256</strong></div><div><span>ROUTE</span><strong id="access-route">LOOPBACK</strong></div>
       </footer>
     </aside>
 
@@ -115,7 +123,7 @@
         </div>
       </header>
 
-      <div id="display" class="display" tabindex="0" data-state="idle" aria-label="Remote desktop display">
+      <div id="display" class="display" tabindex="0" data-state="idle" aria-label="Remote session display">
         <div id="empty-state" class="empty-state">
           <div class="radar" aria-hidden="true">
             <span class="radar-pulse"></span>
@@ -125,15 +133,15 @@
             </svg>
             <span class="radar-label label-lan">LAN</span><span class="radar-label label-pi">PI:01</span><span class="radar-label label-warp">WARP</span>
           </div>
-          <div class="empty-copy"><p class="kicker">REMOTE DISPLAY CHANNEL</p><h2>No signal</h2><p>Enter a private IP address and credentials to open an RDP or VNC session through the Raspberry Pi.</p></div>
+          <div class="empty-copy"><p class="kicker">REMOTE SESSION CHANNEL</p><h2>No signal</h2><p>Enter a private IP address and credentials to open an SSH, RDP, or VNC session through the Raspberry Pi.</p></div>
           <div class="keyboard-hints" aria-label="Suggested keyboard shortcuts"><span><kbd>F11</kbd> Fullscreen</span><span><kbd>ESC</kbd> Exit view</span></div>
         </div>
       </div>
-      <footer class="viewer-footer"><span><i class="footer-light"></i> WEB ACCESS VIA SSH</span><span id="viewer-route">127.0.0.1:8080 · GUACD:4822</span></footer>
+      <footer class="viewer-footer"><span><i class="footer-light"></i> <span id="access-footer">WEB ACCESS VIA SSH</span></span><span id="viewer-route">127.0.0.1:8080 · GUACD:4822</span></footer>
     </section>
   </main>
 
   <script src="./guacamole/all.min.js"></script>
-  <script src="./app.js?v=edge-2"></script>
+  <script src="./app.js?v=edge-3"></script>
 </body>
 </html>

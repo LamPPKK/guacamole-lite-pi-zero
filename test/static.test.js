@@ -41,20 +41,66 @@ test('vendored Guacamole client matches the reviewed asset', () => {
   );
 });
 
-test('gateway retains its loopback and token security controls', () => {
+test('gateway retains its access, token, and target security controls', () => {
   const server = read('server.js');
   assert.match(server, /GUAC_WEB_HOST \|\| '127\.0\.0\.1'/);
+  assert.match(server, /GUAC_ALLOWED_WEB_HOSTS/);
+  assert.match(server, /Basic authentication is required when GUAC_WEB_HOST is not loopback/);
   assert.match(server, /MAX_CONCURRENT_SESSIONS = 1/);
   assert.match(server, /MAX_WEBSOCKET_PAYLOAD = 256 \* 1024/);
   assert.match(server, /createHmac\('sha256'/);
   assert.match(server, /timingSafeEqual/);
   assert.match(server, /hostname\.endsWith\('\.localhost'\)/);
   assert.match(server, /isPrivateIPv4/);
+  assert.match(server, /\['rdp', 'vnc', 'ssh'\]/);
 });
 
 test('systemd units bind both services to loopback', () => {
   assert.match(read('deploy/guacd.service'), /-b 127\.0\.0\.1 -l 4822/);
   assert.match(read('deploy/guacamole-lite.service'), /--max-old-space-size=80/);
+  assert.match(read('scripts/install.sh'), /GUAC_WEB_HOST=127\.0\.0\.1/);
+});
+
+test('pinned guacd build and installer cover SSH, RDP, VNC, and protected VPN access', () => {
+  const build = read('scripts/build-guacd.sh');
+  const manifest = read('deploy/GUACD-BUILD-MANIFEST');
+  const access = read('scripts/configure-access.sh');
+  const install = read('scripts/install.sh');
+  const server = read('server.js');
+
+  assert.match(build, /libpango1\.0-dev/);
+  assert.match(build, /libssh2-1-dev/);
+  assert.match(build, /fonts-dejavu-core/);
+  assert.match(build, /--with-terminal/);
+  assert.match(build, /--with-ssh/);
+  assert.match(manifest, /protocols=ssh,rdp,vnc/);
+  assert.match(access, /is_private_ipv4/);
+  assert.match(access, /GUAC_BASIC_AUTH_SHA256/);
+  assert.match(access, /curl --config -/);
+  assert.doesNotMatch(access, /curl[^\n]*--user/);
+  assert.doesNotMatch(access, /GUAC_WEB_HOST=0\.0\.0\.0/);
+  assert.match(install, /restore_install_backup/);
+  assert.match(install, /DEPLOYMENT_TOUCHED/);
+  assert.match(server, /Configured VPN address is unavailable; retrying/);
+});
+
+test('English UI exposes all protocols and responsive access states', () => {
+  const html = read('public/index.html');
+  const app = read('public/app.js');
+  const css = read('public/styles.css');
+
+  for (const protocol of ['ssh', 'rdp', 'vnc']) {
+    assert.match(html, new RegExp(`<option value="${protocol}">`));
+  }
+  assert.match(html, /class="ssh-options ssh-only" hidden/);
+  assert.match(html, /name="hostKey"/);
+  assert.match(app, /rdp: '3389', vnc: '5900', ssh: '22'/);
+  assert.match(app, /VPN \+ BASIC AUTH/);
+  assert.match(css, /@media \(max-width: 1040px\)/);
+  assert.match(css, /@media \(max-width: 820px\)/);
+  assert.match(css, /@media \(max-width: 380px\)/);
+  assert.match(css, /min-height: 44px/);
+  assert.match(css, /prefers-reduced-motion: reduce/);
 });
 
 test('repository does not contain deployment-specific secrets or addresses', () => {
@@ -76,7 +122,7 @@ test('repository-facing text uses the English locale and no Vietnamese diacritic
   const html = read('public/index.html');
 
   assert.match(html, /<html lang="en">/);
-  assert.match(html, /styles\.css\?v=edge-2/);
-  assert.match(html, /app\.js\?v=edge-2/);
+  assert.match(html, /styles\.css\?v=edge-3/);
+  assert.match(html, /app\.js\?v=edge-3/);
   assert.doesNotMatch(content, accentedLatin);
 });

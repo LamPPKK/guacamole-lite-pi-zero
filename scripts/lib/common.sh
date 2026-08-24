@@ -47,3 +47,17 @@ timestamp_utc() {
 node_major() {
   /usr/bin/node -p "Number(process.versions.node.split('.')[0])"
 }
+
+is_private_ipv4() {
+  local value="$1" a b c d
+  [[ ${value} =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+  a=$((10#${BASH_REMATCH[1]}))
+  b=$((10#${BASH_REMATCH[2]}))
+  c=$((10#${BASH_REMATCH[3]}))
+  d=$((10#${BASH_REMATCH[4]}))
+  ((a <= 255 && b <= 255 && c <= 255 && d <= 255)) || return 1
+  ((a == 10)) \
+    || ((a == 172 && b >= 16 && b <= 31)) \
+    || ((a == 192 && b == 168)) \
+    || ((a == 100 && b >= 64 && b <= 127))
+}

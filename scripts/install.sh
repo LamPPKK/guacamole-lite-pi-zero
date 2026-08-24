@@ -7,6 +7,9 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 BUILD_GUACD=1
 INSTALL_BUILD_PACKAGES=1
+VPN_ADDRESS=""
+VPN_USER="pi-remote"
+VPN_USER_SET=0
 
 usage() {
   cat <<'EOF'
@@ -15,10 +18,14 @@ Usage: sudo ./scripts/install.sh [options]
 Options:
   --skip-guacd-build  require an existing pinned guacd build
   --no-apt            do not install guacd build dependencies
+  --vpn-address IP    bind to one existing private VPN IP with Basic Auth
+  --vpn-user USER     Basic Auth username used with --vpn-address
   -h, --help          show this help
 
-The gateway and guacd bind to loopback only. This script does not configure a
-firewall and does not modify SSH, WARP, Cloudflared, Samba, or Pi Connect.
+The gateway uses loopback/SSH tunnel access by default. VPN mode binds only to
+the exact supplied IP and prints a generated password once. This script does
+not configure a firewall or modify SSH, WARP, Tailscale, Cloudflared, Samba,
+or Pi Connect.
 EOF
 }
 
@@ -26,11 +33,27 @@ while (($#)); do
   case "$1" in
     --skip-guacd-build) BUILD_GUACD=0 ;;
     --no-apt) INSTALL_BUILD_PACKAGES=0 ;;
+    --vpn-address)
+      [[ $# -ge 2 ]] || die "--vpn-address requires an IPv4 address"
+      VPN_ADDRESS="$2"
+      shift
+      ;;
+    --vpn-user)
+      [[ $# -ge 2 ]] || die "--vpn-user requires a username"
+      VPN_USER="$2"
+      VPN_USER_SET=1
+      shift
+      ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
   shift
 done
+
+[[ -z ${VPN_ADDRESS} || ${VPN_USER} =~ ^[A-Za-z0-9._-]{1,32}$ ]] \
+  || die "VPN username must contain 1-32 letters, digits, dots, underscores, or hyphens"
+[[ ${VPN_USER_SET} -eq 0 || -n ${VPN_ADDRESS} ]] \
+  || die "--vpn-user requires --vpn-address"
 
 require_root
 require_arm64
@@ -54,6 +77,8 @@ else
     || die "guacd build manifest is missing"
   grep -qx "commit=${GUACD_COMMIT}" "${GUACD_PREFIX}/BUILD-MANIFEST" \
     || die "installed guacd does not match the pinned commit"
+  grep -qx 'protocols=ssh,rdp,vnc' "${GUACD_PREFIX}/BUILD-MANIFEST" \
+    || die "installed guacd does not provide SSH, RDP, and VNC"
 fi
 
 install -d -m 0700 "${BACKUP_ROOT}" "${STATE_DIR}"
@@ -86,6 +111,55 @@ printf '%s\n' "${BACKUP_DIR}" > "${STATE_DIR}/last-backup"
 chmod 0600 "${STATE_DIR}/last-backup" "${BACKUP_DIR}"/*.list
 log "backup saved to ${BACKUP_DIR}"
 
+STAGE_DIR=""
+DEPLOYMENT_TOUCHED=0
+INSTALL_SUCCEEDED=0
+
+restore_install_backup() {
+  local restore_failed=0
+  log "installation failed after deployment began; restoring ${BACKUP_DIR}"
+  systemctl disable --now guacamole-lite.service guacd.service 2>/dev/null || true
+
+  while IFS= read -r target; do
+    [[ -n ${target} ]] || continue
+    rm -rf -- "${target}" || restore_failed=1
+    install -d -m 0755 "$(dirname -- "${target}")" || restore_failed=1
+    cp -a -- "${BACKUP_DIR}/rootfs/${target#/}" "${target}" || restore_failed=1
+  done < "${BACKUP_DIR}/present.list"
+
+  while IFS= read -r target; do
+    [[ -n ${target} ]] || continue
+    rm -rf -- "${target}" || restore_failed=1
+  done < "${BACKUP_DIR}/absent.list"
+
+  systemctl daemon-reload || restore_failed=1
+  if [[ -f /etc/systemd/system/guacd.service \
+        && -f /etc/systemd/system/guacamole-lite.service ]]; then
+    systemctl enable --now guacd.service guacamole-lite.service || restore_failed=1
+  fi
+  if [[ ${restore_failed} -eq 0 ]]; then
+    log "previous gateway installation restored; the compiled guacd prefix was preserved"
+  else
+    printf '[guacamole-lite-pi] ERROR: automatic restore was incomplete; run scripts/rollback.sh %q\n' \
+      "${BACKUP_DIR}" >&2
+  fi
+}
+
+cleanup() {
+  local exit_status=$?
+  trap - EXIT
+  set +e
+  if [[ -n ${STAGE_DIR:-} && -d ${STAGE_DIR} ]]; then
+    rm -rf -- "${STAGE_DIR}"
+  fi
+  if [[ ${exit_status} -ne 0 && ${DEPLOYMENT_TOUCHED} -eq 1 \
+        && ${INSTALL_SUCCEEDED} -eq 0 ]]; then
+    restore_install_backup
+  fi
+  exit "${exit_status}"
+}
+trap cleanup EXIT
+
 if ! getent group guacd >/dev/null; then
   groupadd --system guacd
 fi
@@ -97,12 +171,6 @@ install -d -o guacd -g guacd -m 0750 /var/lib/guacd
 
 install -d -m 0755 /opt/guacamole-lite
 STAGE_DIR="$(mktemp -d /opt/guacamole-lite/.install.XXXXXX)"
-cleanup() {
-  if [[ -n ${STAGE_DIR:-} && -d ${STAGE_DIR} ]]; then
-    rm -rf -- "${STAGE_DIR}"
-  fi
-}
-trap cleanup EXIT
 
 install -m 0644 "${ROOT_DIR}/package.json" "${STAGE_DIR}/package.json"
 install -m 0644 "${ROOT_DIR}/package-lock.json" "${STAGE_DIR}/package-lock.json"
@@ -119,6 +187,7 @@ log "installing pinned Node.js production dependencies"
 npm --prefix "${STAGE_DIR}" ci --omit=dev --ignore-scripts
 chmod -R go-w "${STAGE_DIR}"
 
+DEPLOYMENT_TOUCHED=1
 rm -rf -- "${GATEWAY_PREFIX}"
 mv -- "${STAGE_DIR}" "${GATEWAY_PREFIX}"
 STAGE_DIR=""
@@ -128,7 +197,7 @@ if [[ ! -f ${ENV_FILE} ]]; then
   command -v openssl >/dev/null 2>&1 || die "openssl is required to generate the token key"
   umask 077
   TOKEN_KEY="$(openssl rand -base64 32)"
-  printf 'GUAC_WEB_HOST=127.0.0.1\nGUAC_WEB_PORT=8080\nGUACD_HOST=127.0.0.1\nGUACD_PORT=4822\nGUAC_TOKEN_KEY=%s\n' \
+  printf 'GUAC_WEB_HOST=127.0.0.1\nGUAC_WEB_PORT=8080\nGUAC_ALLOWED_WEB_HOSTS=127.0.0.1,localhost\nGUACD_HOST=127.0.0.1\nGUACD_PORT=4822\nGUAC_TOKEN_KEY=%s\n' \
     "${TOKEN_KEY}" > "${ENV_FILE}"
 fi
 chown root:root "${ENV_FILE}"
@@ -141,7 +210,18 @@ install -m 0644 "${ROOT_DIR}/deploy/guacamole-lite.service" \
 systemctl daemon-reload
 systemctl enable guacd.service guacamole-lite.service
 systemctl restart guacd.service
-systemctl restart guacamole-lite.service
 
-"${SCRIPT_DIR}/verify.sh"
-log "installation complete; use scripts/open-tunnel.sh from your workstation"
+if [[ -n ${VPN_ADDRESS} ]]; then
+  "${SCRIPT_DIR}/configure-access.sh" vpn "${VPN_ADDRESS}" "${VPN_USER}"
+  log "installation complete; VPN access is enabled on the exact configured address"
+else
+  systemctl restart guacamole-lite.service
+  "${SCRIPT_DIR}/verify.sh"
+  INSTALLED_WEB_HOST="$(awk -F= '$1 == "GUAC_WEB_HOST" { print $2; exit }' "${ENV_FILE}")"
+  if [[ ${INSTALLED_WEB_HOST:-127.0.0.1} == "127.0.0.1" ]]; then
+    log "installation complete; use scripts/open-tunnel.sh from your workstation"
+  else
+    log "installation complete; the existing protected VPN access mode was preserved"
+  fi
+fi
+INSTALL_SUCCEEDED=1

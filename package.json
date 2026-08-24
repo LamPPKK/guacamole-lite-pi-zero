@@ -2,7 +2,7 @@
   "name": "guacamole-lite-pi",
   "version": "0.1.0",
   "private": true,
-  "description": "Loopback-only Guacamole Lite gateway for Raspberry Pi",
+  "description": "Protected SSH/RDP/VNC Guacamole Lite gateway for Raspberry Pi",
   "license": "MIT",
   "repository": {
     "type": "git",

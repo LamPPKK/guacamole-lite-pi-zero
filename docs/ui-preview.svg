@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
   <title id="title">PI Remote Edge Console UI</title>
-  <desc id="desc">Dark industrial RDP and VNC connection console preview</desc>
+  <desc id="desc">Dark industrial SSH, RDP, and VNC connection console preview</desc>
   <rect width="1280" height="720" fill="#080b0d"/>
   <rect x="24" y="20" width="1232" height="60" rx="10" fill="#10161a" stroke="#263038"/>
   <circle cx="55" cy="50" r="7" fill="#c7ff31"/><text x="76" y="57" fill="#e9f0f2" font-family="monospace" font-size="22" font-weight="700">PI//REMOTE</text>
