@@ -50,6 +50,12 @@ account allows password authentication. A malformed or mismatched known-host
 entry intentionally prevents the connection. Obtain a trusted entry out of
 band, for example from a workstation that already trusts the host.
 
+For **This Pi**, the target is always `127.0.0.1:22`. Check that the Pi's SSH
+service is running with `systemctl status ssh` and that the selected local
+account is allowed to sign in with a password. Custom local SSH ports are not
+accepted by this shortcut; enter the Pi's private address as a normal SSH target
+instead.
+
 ## Switch back to the safe default
 
 If VPN routing changes or you no longer need direct VPN access:

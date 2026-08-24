@@ -20,6 +20,10 @@ publishing a service on the public Internet.
 - A target must be a literal IPv4 address in `10/8`, `172.16/12`,
   `192.168/16`, or `100.64/10`. The gateway does not resolve hostnames, which
   reduces DNS-rebinding risk.
+- The only loopback target exception is SSH on exactly `127.0.0.1:22`. The
+  **This Pi** request is normalized server-side, so client-supplied host and
+  port values cannot turn it into a general loopback proxy. RDP, VNC, and other
+  SSH loopback ports remain blocked.
 - Port, display dimensions, DPI, and text-field lengths are bounded.
 - Token requests require same-origin when a browser supplies an `Origin`.
 - The Host header must be loopback, a `.localhost` name, or an explicitly

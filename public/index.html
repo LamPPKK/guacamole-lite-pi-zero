@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#090d0f">
   <title>Pi Remote — Edge Console</title>
-  <link rel="stylesheet" href="./styles.css?v=edge-3">
+  <link rel="stylesheet" href="./styles.css?v=edge-4">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to remote console</a>
@@ -51,10 +51,19 @@
             </span>
           </label>
 
+          <label class="self-target ssh-only" hidden>
+            <input id="self-target" name="self" type="checkbox" value="true">
+            <span class="self-target-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01M12 7h5M12 17h5"/></svg>
+            </span>
+            <span class="self-target-copy"><strong>This Pi</strong><small>SSH through 127.0.0.1:22</small></span>
+            <span class="self-target-switch" aria-hidden="true"><span></span></span>
+          </label>
+
           <div class="address-grid">
             <label class="field host-field">
-              <span class="field-label">Private address</span>
-              <span class="input-shell host-input"><span class="input-prefix" aria-hidden="true">IP</span><input name="hostname" inputmode="decimal" placeholder="192.168.1.100" required autocomplete="off" spellcheck="false"></span>
+              <span id="host-field-label" class="field-label">Private address</span>
+              <span class="input-shell host-input"><span id="host-prefix" class="input-prefix" aria-hidden="true">IP</span><input id="hostname" name="hostname" inputmode="decimal" placeholder="192.168.1.100" required autocomplete="off" spellcheck="false"></span>
             </label>
             <label class="field port-field"><span class="field-label">Port</span><input id="port" name="port" type="number" min="1" max="65535" value="3389" required></label>
           </div>
@@ -103,7 +112,7 @@
 
       <div class="security-note">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.7 2.8 8.7 7 10 4.2-1.3 7-5.3 7-10V6zM9 12l2 2 4-5"/></svg>
-        <p><strong>Protected access.</strong> Only private LAN/VPN addresses are allowed. Encrypted tokens expire after five minutes.</p>
+        <p><strong>Protected access.</strong> Private LAN/VPN targets are allowed; This Pi SSH is restricted to loopback port 22. Encrypted tokens expire after five minutes.</p>
       </div>
       <footer class="panel-footer" aria-label="Security parameters">
         <div><span>SLOTS</span><strong>01 / 01</strong></div><div><span>CIPHER</span><strong>AES-256</strong></div><div><span>ROUTE</span><strong id="access-route">LOOPBACK</strong></div>
@@ -142,6 +151,6 @@
   </main>
 
   <script src="./guacamole/all.min.js"></script>
-  <script src="./app.js?v=edge-3"></script>
+  <script src="./app.js?v=edge-4"></script>
 </body>
 </html>

@@ -9,15 +9,18 @@ configured-IP:8080  Node.js gateway / guacamole-lite
     | Guacamole protocol over loopback
     v
 127.0.0.1:4822  guacd
-    | SSH, RDP, or VNC
+    | SSH, RDP, or VNC to a private target
+    | or SSH only to this Pi at 127.0.0.1:22
     v
-Private IPv4 target on the network
+Private IPv4 target on the network / local Pi SSH service
 ```
 
 The gateway serves four static assets, the `/healthz` endpoint, the
 `/api/token` token endpoint, and a WebSocket managed by `guacamole-lite`. The
 same process applies Host/Origin validation, optional Basic Auth, body and
 WebSocket size limits, the target allowlist, and the single-session limit.
+The local-Pi shortcut is normalized and revalidated as SSH on exact loopback
+port 22; it does not expose other services bound to the Pi's loopback interface.
 The default listener is loopback. VPN mode refuses wildcard/public binds and
 requires both an exact assigned private/CGNAT address and Basic Auth.
 If the configured VPN address is temporarily absent during boot, the Node.js

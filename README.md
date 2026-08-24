@@ -13,8 +13,8 @@ request with generated Basic Auth credentials.
   support.
 - A `guacamole-lite` 1.2.0 gateway with five-minute tokens protected by
   AES-256-CBC encryption and HMAC-SHA256 authentication.
-- SSH, RDP, and VNC access to private IPv4 targets only (RFC1918 and CGNAT),
-  limited to one concurrent session.
+- SSH, RDP, and VNC access to private IPv4 targets (RFC1918 and CGNAT), plus a
+  locked-down `This Pi` SSH shortcut, limited to one concurrent session.
 - Apache `guacd` pinned to commit
   `f22a2df129d9ecf279466e9bcf44cd026e23e6bd` from `staging/1.6.1`.
 - Sandboxed systemd services, an 80 MiB V8 heap limit, and declarative cgroup
@@ -117,11 +117,15 @@ appeared yet, instead of exhausting systemd's restart limit.
 
 ## Remote sessions
 
-Targets must use a private IPv4 address. SSH defaults to port 22, RDP to 3389,
-and VNC to 5900. For SSH, paste a matching OpenSSH `known_hosts` line into the
-optional host-key field to authenticate the target. Credentials exist only in
-the browser tab's memory and in a short-lived connection token; the gateway
-does not persist them or write them to logs.
+Targets must normally use a private IPv4 address. SSH defaults to port 22, RDP
+to 3389, and VNC to 5900. Select SSH and enable **This Pi** to connect to the
+Pi's own SSH service without entering an address. The server always forces this
+shortcut to `127.0.0.1:22`; it cannot be used to reach other loopback services.
+
+For SSH, paste a matching OpenSSH `known_hosts` line into the optional host-key
+field to authenticate the target. Credentials exist only in the browser tab's
+memory and in a short-lived connection token; the gateway does not persist them
+or write them to logs.
 
 ## Verification and operations
 

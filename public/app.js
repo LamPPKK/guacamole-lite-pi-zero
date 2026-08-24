@@ -3,6 +3,10 @@
 const form = document.querySelector('#connection-form');
 const protocolInput = document.querySelector('#protocol');
 const portInput = document.querySelector('#port');
+const hostnameInput = document.querySelector('#hostname');
+const selfTargetInput = document.querySelector('#self-target');
+const hostFieldLabel = document.querySelector('#host-field-label');
+const hostPrefix = document.querySelector('#host-prefix');
 const passwordInput = document.querySelector('#password');
 const passwordToggle = document.querySelector('#toggle-password');
 const display = document.querySelector('#display');
@@ -26,6 +30,7 @@ const guacamoleAvailable = typeof Guacamole !== 'undefined';
 
 let client = null;
 let connectionHadError = false;
+let previousSshTarget = { hostname: '', port: '22' };
 const keyboard = guacamoleAvailable ? new Guacamole.Keyboard(display) : null;
 
 if (keyboard) {
@@ -59,6 +64,10 @@ function setBusy(busy) {
 
 function updateProtocolFields() {
   const protocol = protocolInput.value;
+  if (protocol !== 'ssh' && selfTargetInput.checked) {
+    selfTargetInput.checked = false;
+    updateSelfTarget();
+  }
   document.querySelectorAll('.rdp-only').forEach((element) => {
     element.hidden = protocol !== 'rdp';
   });
@@ -66,6 +75,27 @@ function updateProtocolFields() {
     element.hidden = protocol !== 'ssh';
   });
   portInput.value = { rdp: '3389', vnc: '5900', ssh: '22' }[protocol];
+}
+
+function updateSelfTarget() {
+  const enabled = protocolInput.value === 'ssh' && selfTargetInput.checked;
+  const wasEnabled = hostnameInput.readOnly;
+
+  if (enabled) {
+    if (!wasEnabled) {
+      previousSshTarget = { hostname: hostnameInput.value, port: portInput.value || '22' };
+    }
+    hostnameInput.value = '127.0.0.1';
+    portInput.value = '22';
+  } else if (wasEnabled) {
+    hostnameInput.value = previousSshTarget.hostname;
+    portInput.value = previousSshTarget.port;
+  }
+
+  hostnameInput.readOnly = enabled;
+  portInput.readOnly = enabled;
+  hostFieldLabel.textContent = enabled ? 'This Pi address' : 'Private address';
+  hostPrefix.textContent = enabled ? 'PI' : 'IP';
 }
 
 function setAccessMode(mode) {
@@ -143,6 +173,7 @@ function toggleFullscreen() {
 }
 
 protocolInput.addEventListener('change', updateProtocolFields);
+selfTargetInput.addEventListener('change', updateSelfTarget);
 window.addEventListener('resize', scaleDisplay);
 window.addEventListener('fullscreenchange', () => {
   fullscreenButton.setAttribute('aria-label', document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen');
@@ -186,6 +217,7 @@ form.addEventListener('submit', async (event) => {
   setStatus('Creating session', 'working');
 
   const values = Object.fromEntries(new FormData(form));
+  values.self = selfTargetInput.checked && values.protocol === 'ssh';
   values.width = Math.max(640, Math.floor(display.clientWidth));
   values.height = Math.max(480, Math.floor(display.clientHeight));
   values.dpi = Math.round(96 * window.devicePixelRatio);
@@ -208,7 +240,7 @@ form.addEventListener('submit', async (event) => {
     display.replaceChildren(remoteDisplay.getElement());
     display.dataset.state = 'connecting';
     sessionProtocol.textContent = values.protocol.toUpperCase();
-    sessionTitle.textContent = `${values.hostname}:${values.port}`;
+    sessionTitle.textContent = values.self ? 'This Pi · 127.0.0.1:22' : `${values.hostname}:${values.port}`;
     remoteDisplay.onresize = scaleDisplay;
 
     sessionClient.onstatechange = (state) => {

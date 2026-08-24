@@ -93,8 +93,12 @@ test('English UI exposes all protocols and responsive access states', () => {
     assert.match(html, new RegExp(`<option value="${protocol}">`));
   }
   assert.match(html, /class="ssh-options ssh-only" hidden/);
+  assert.match(html, /id="self-target" name="self" type="checkbox"/);
+  assert.match(html, /This Pi/);
   assert.match(html, /name="hostKey"/);
   assert.match(app, /rdp: '3389', vnc: '5900', ssh: '22'/);
+  assert.match(app, /values\.self = selfTargetInput\.checked/);
+  assert.match(css, /\.self-target:focus-within/);
   assert.match(app, /VPN \+ BASIC AUTH/);
   assert.match(css, /@media \(max-width: 1040px\)/);
   assert.match(css, /@media \(max-width: 820px\)/);
@@ -122,7 +126,7 @@ test('repository-facing text uses the English locale and no Vietnamese diacritic
   const html = read('public/index.html');
 
   assert.match(html, /<html lang="en">/);
-  assert.match(html, /styles\.css\?v=edge-3/);
-  assert.match(html, /app\.js\?v=edge-3/);
+  assert.match(html, /styles\.css\?v=edge-4/);
+  assert.match(html, /app\.js\?v=edge-4/);
   assert.doesNotMatch(content, accentedLatin);
 });

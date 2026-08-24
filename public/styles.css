@@ -132,6 +132,25 @@ input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px r
   font-family: var(--mono); font-size: 0.62rem; font-weight: 700; pointer-events: none;
 }
 .port-field input { font-family: var(--mono); text-align: center; }
+.self-target {
+  min-height: 58px; margin-top: 13px; padding: 8px 10px; display: grid; grid-template-columns: 34px minmax(0, 1fr) 38px; align-items: center; gap: 10px;
+  border: 1px solid var(--line); background: rgba(196, 241, 105, 0.025); cursor: pointer; transition: border-color var(--ease), background var(--ease);
+}
+.self-target[hidden] { display: none; }
+.self-target:hover { border-color: #4b5b52; background: rgba(196, 241, 105, 0.045); }
+.self-target:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(196, 241, 105, 0.13); }
+.self-target > input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.self-target-icon { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid #35433d; color: var(--muted-strong); }
+.self-target-icon svg { width: 19px; }
+.self-target-copy { min-width: 0; display: grid; gap: 3px; }
+.self-target-copy strong { color: var(--text); font-family: var(--mono); font-size: 0.71rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.self-target-copy small { overflow: hidden; color: #84918a; font-family: var(--mono); font-size: 0.6rem; text-overflow: ellipsis; white-space: nowrap; }
+.self-target-switch { width: 36px; height: 20px; padding: 2px; border: 1px solid #43504a; background: #101719; transition: border-color var(--ease), background var(--ease); }
+.self-target-switch span { display: block; width: 14px; height: 14px; background: #68756e; transition: transform var(--ease), background var(--ease); }
+.self-target > input:checked ~ .self-target-icon { border-color: rgba(196, 241, 105, 0.48); color: var(--accent); }
+.self-target > input:checked ~ .self-target-switch { border-color: var(--accent); background: rgba(196, 241, 105, 0.08); }
+.self-target > input:checked ~ .self-target-switch span { transform: translateX(16px); background: var(--accent); }
+input[readonly] { border-color: rgba(196, 241, 105, 0.24); color: var(--muted-strong); background: #0b1112; cursor: default; }
 .password-toggle {
   position: absolute; right: 1px; width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; color: var(--muted);
 }

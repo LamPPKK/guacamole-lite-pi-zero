@@ -170,6 +170,34 @@ test('gateway issues a bounded SSH token and rejects unsafe targets and hosts', 
   });
   assert.equal(publicTarget.status, 400);
 
+  const thisPiResponse = await request(gateway.port, {
+    method: 'POST',
+    pathname: '/api/token',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      protocol: 'ssh', self: true, hostname: '8.8.8.8', port: '65535', username: 'pi'
+    })
+  });
+  assert.equal(thisPiResponse.status, 200);
+  const thisPiPayload = decryptToken(JSON.parse(thisPiResponse.body).token);
+  assert.equal(thisPiPayload.connection.type, 'ssh');
+  assert.equal(thisPiPayload.connection.settings.hostname, '127.0.0.1');
+  assert.equal(thisPiPayload.connection.settings.port, '22');
+
+  for (const unsafeLoopback of [
+    { protocol: 'rdp', hostname: '127.0.0.1', port: '3389' },
+    { protocol: 'vnc', hostname: '127.0.0.1', port: '5900' },
+    { protocol: 'ssh', hostname: '127.0.0.1', port: '2222' }
+  ]) {
+    const response = await request(gateway.port, {
+      method: 'POST',
+      pathname: '/api/token',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(unsafeLoopback)
+    });
+    assert.equal(response.status, 400);
+  }
+
   const badHost = await request(gateway.port, { headers: { Host: 'evil.example' } });
   assert.equal(badHost.status, 421);
   const userinfoHost = await request(gateway.port, { headers: { Host: 'attacker@127.0.0.1' } });

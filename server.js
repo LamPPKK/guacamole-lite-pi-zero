@@ -109,6 +109,11 @@ function isPrivateIPv4(hostname) {
     || (a === 100 && b >= 64 && b <= 127);
 }
 
+function isAllowedTarget(protocol, hostname, port) {
+  return isPrivateIPv4(hostname)
+    || (protocol === 'ssh' && hostname === '127.0.0.1' && port === 22);
+}
+
 function cleanText(value, maxLength) {
   if (value === undefined || value === null) return '';
   const text = String(value);
@@ -274,13 +279,13 @@ function buildConnection(body) {
   const protocol = ['rdp', 'vnc', 'ssh'].includes(body.protocol) ? body.protocol : null;
   if (!protocol) throw new Error('Protocol must be rdp, vnc, or ssh');
 
-  const hostname = cleanText(body.hostname, 64).trim();
-  if (!isPrivateIPv4(hostname)) {
-    throw new Error('Target must be a private IPv4 address');
-  }
-
   const defaultPorts = { rdp: 3389, vnc: 5900, ssh: 22 };
-  const port = parsePort(body.port, defaultPorts[protocol]);
+  const selfTarget = protocol === 'ssh' && (body.self === true || body.self === 'true');
+  const hostname = selfTarget ? '127.0.0.1' : cleanText(body.hostname, 64).trim();
+  const port = selfTarget ? 22 : parsePort(body.port, defaultPorts[protocol]);
+  if (!isAllowedTarget(protocol, hostname, port)) {
+    throw new Error('Target must be a private IPv4 address or This Pi SSH');
+  }
   const width = clampInteger(body.width, 1280, 640, 2560);
   const height = clampInteger(body.height, 720, 480, 1600);
   const dpi = clampInteger(body.dpi, 96, 72, 192);
@@ -339,11 +344,14 @@ function validateConnectionSettings(settings) {
   if (!connection || !['rdp', 'vnc', 'ssh'].includes(connection.type)) {
     throw new Error('Unsupported protocol');
   }
-  if (!connection.settings || !isPrivateIPv4(connection.settings.hostname)) {
+  if (!connection.settings) {
     throw new Error('Target is outside the private network');
   }
   const defaultPorts = { rdp: 3389, vnc: 5900, ssh: 22 };
-  parsePort(connection.settings.port, defaultPorts[connection.type]);
+  const port = parsePort(connection.settings.port, defaultPorts[connection.type]);
+  if (!isAllowedTarget(connection.type, connection.settings.hostname, port)) {
+    throw new Error('Target is outside the private network');
+  }
   delete connection.guacdHost;
   delete connection.guacdPort;
   return settings;
